@@ -126,3 +126,6 @@ html, body, #app {
 
 /* Remove bpmn-js native resize handles (we use our own) */
 .djs-resizer { display: none !important; }
+
+/* ── Hide bpmn-js ContextPad (replaced by connection dots + right-click menu) */
+.djs-context-pad { display: none !important; }
