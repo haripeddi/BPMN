@@ -1,217 +1,327 @@
 # Product Specification: BPMN Editor with Miro-Grade Object Flexibility
 
-**Version:** 0.1 (draft)  
-**Date:** 2026-05-26  
-**Status:** Specification only — no implementation in this document  
-**Baseline:** `bpmn-js-app/` (Vite + `bpmn-js` Modeler)  
-**Constraint:** Existing application code remains untouched until an explicit implementation phase. All enhancements are additive modules, UI shells, and configuration layered on top of the current editor.
+**Version:** 1.0 (living document)
+**Date:** 2026-05-26
+**Status:** v1 implemented and running — this document reflects the current codebase
+**Baseline:** `bpmn-js-app/` (Vite + `bpmn-js` v17 Modeler)
+**Source repo:** https://github.com/haripeddi/BPMN
+**Dev server:** `npm install && npm run dev` → http://localhost:5173
 
 ---
 
 ## 1. Executive summary
 
-The current open-source stack (`bpmn-js` + default palette/context pad) delivers **valid BPMN modeling** but **not** the per-object creative freedom users expect from Miro. Miro treats every board item as a first-class visual object with immediate styling, resizing, typography, and container behavior via a persistent **context toolbar** and rich `style` properties ([Miro Web SDK — style reference](https://developers.miro.com/docs/web-sdk-reference-guide), [Text](https://developers.miro.com/docs/websdk-reference-text), [Shape](https://developers.miro.com/miro-ea/docs/shape_shape-1), [Frames](https://help.miro.com/hc/en-us/articles/360018261813-Frames)).
+The editor combines **`bpmn-js`** (standards-compliant BPMN 2.0 modeling) with a custom **MFlex layer** that adds Miro-like visual flexibility. Every canvas element can be styled, resized, and arranged freely — without breaking the underlying BPMN semantics or XML interchange format.
 
-This specification defines **“BPMN + Miro flexibility”**: keep BPMN semantics, notation rules, import/export, and execution-relevant structure intact, while giving **every placeable BPMN element** Miro-like affordances for appearance, size, text, and collapse/expand where the standard allows.
+**v1 delivered:**
 
-**Out of scope for v1:** Replacing `bpmn-js` with Miro SDK, embedding a live Miro board, or breaking BPMN 2.0 interchange without a documented extension namespace.
+| Capability | Status |
+|------------|--------|
+| Left shape panel — categorised shapes, sticky notes, click-to-place | ✅ Done |
+| Dynamic context toolbar (per element-type controls) | ✅ Done |
+| Custom fill, text color, font, border controls | ✅ Done |
+| Sticky notes with colored backgrounds | ✅ Done |
+| TextAnnotation rendered as clean text box (no bracket) | ✅ Done |
+| Swimlane (Participant/Lane) text horizontal by default | ✅ Done |
+| Custom resize handles (white square Miro-style) | ✅ Done |
+| Free move / free text insertion anywhere | ✅ Done |
+| Copy / paste via keyboard shortcuts | ✅ Done |
+| Style persistence in `.bpmn` XML via `mflex:Style` extension | ✅ Done |
+| SubProcess collapse/expand toggle | ✅ Done |
+| Clean selection visuals (no default blue outlines/spots) | ✅ Done |
+
+**Planned for v2:**
+
+| Capability | Priority |
+|------------|----------|
+| Fill opacity slider | P1 |
+| Format painter (copy style → paste style) | P1 |
+| Right inspector panel (advanced BPMN properties) | P1 |
+| Compact presentation mode for tasks/gateways | P2 |
+| Partial text selection formatting | P2 |
+| Export/import warning for viewers without mflex extension | P2 |
 
 ---
 
-## 2. Problem statement (observed gaps)
+## 2. Problem statement (observed gaps — all resolved in v1)
 
-| # | User observation | Root cause in OSS stack | Miro equivalent |
-|---|------------------|-------------------------|-----------------|
-| G1 | Objects aren’t flexible | `bpmn-js` optimizes for **notation compliance**; resize handles and freeform layout are limited by BPMN DI bounds and element-specific rules | Drag resize, aspect control, context menu dimensions ([Text help](https://help.miro.com/hc/en-us/articles/360017572094-Text)) |
-| G2 | No custom fill/text colors | Colors exist but are **not exposed in UI** by default; users don’t discover `Modeling#setColor` | `fillColor`, `color`, opacity on selection ([Shape SDK](https://developers.miro.com/miro-ea/docs/shape_shape-1)) |
-| G3 | Can’t maximize/minimize objects | Only **SubProcess** supports collapse/expand (`isExpanded`) + drilldown ([bpmn.io blog](https://bpmn.io/blog/posts/2022-bpmn-js-900-collapsed-subprocesses)); other elements have no “compact” mode | Frames resize; no true collapse for arbitrary widgets — **we map “minimize” to BPMN collapse + visual compact modes** |
-| G4 | No font types | Default `textRenderer` is global; per-element font family/size not in stock properties panel | `fontFamily`, `fontSize`, bold/italic/underline ([Text SDK](https://developers.miro.com/docs/websdk-reference-text)) |
+| # | User observation | Root cause in OSS stack | Resolution in v1 |
+|---|------------------|-------------------------|------------------|
+| G1 | Objects aren't flexible | `bpmn-js` resize limited by BPMN DI rules | Custom `MflexResizeRules` + `MflexResizeHandles` override default rules; all main element types freely resizable |
+| G2 | No custom fill/text colors | Colors not exposed in default UI | MFlex Context Toolbar exposes fill/text/border pickers with preset palette + hex input |
+| G3 | Can't maximize/minimize objects | Only SubProcess supports collapse | Collapse toggle added to Context Toolbar for SubProcess; zoom-to-fit via toolbar |
+| G4 | No font types | Default `textRenderer` is global | Per-element `fontFamily`, `fontSize`, bold/italic/underline via `StyleApplier` + SVG patching |
+| G5 | Need to drag shapes from palette | bpmn-js default is drag-to-place | **Click-to-place**: click panel item → shape ghost follows cursor → click canvas to drop |
+| G6 | Swimlane text appears vertical | bpmn-js default: pool labels rotated 270° | `StyleApplier._applyTextDirection` strips rotation, recentres in 30px header strip |
+| G7 | No sticky notes | Not a BPMN concept | Implemented using `bpmn:TextAnnotation` + `stickyFill` attribute; colored, rounded, bracket-hidden |
+| G8 | Blue selection handles/spots visible | Default `.djs-resizer` + `.djs-outline` CSS | CSS overrides hide default handles; custom white `mflex-rh` handles added |
 
-**Design principle:** Close the *experience* gap with Miro, not by abandoning BPMN. Where BPMN forbids a visual (e.g. arbitrary rotation of a Start Event), the UI **disables** the control and explains why.
+**Design principle:** Close the *experience* gap with Miro without abandoning BPMN. Where BPMN forbids a visual (e.g. arbitrary rotation of a Start Event), the UI disables the control.
 
 ---
 
 ## 3. Goals and non-goals
 
-### 3.1 Goals
+### 3.1 Goals (v1 — all achieved)
 
-1. **Per-element styling** for all modeled BPMN shapes, connections, and labels that users can place from the palette.
-2. **Miro-style context toolbar** appearing on single and multi-selection, with color, typography, alignment, border, and size controls.
-3. **Persistent styling** in saved `.bpmn` files via standards-aligned extensions (BPMN in Color + custom moddle namespace).
-4. **Resize and dimension control** within BPMN-valid bounds; optional numeric width/height like Miro’s resize dialog.
-5. **Collapse / expand** for SubProcesses (native) plus a **“compact presentation”** mode for supported elements where full collapse is invalid.
-6. **Format painter** (copy style → apply style) across compatible elements.
-7. **Zero regression** to current `bpmn-js-app` toolbar (New, Open, Save, Undo/Redo) until explicitly merged.
+1. **Per-element styling** for all modeled BPMN shapes, connections, and labels.
+2. **Miro-style context toolbar** appearing on selection, with color, typography, alignment, border, and size controls.
+3. **Left shape panel** with categorised shapes and one-click placement.
+4. **Sticky notes** anywhere on the canvas, with coloured backgrounds.
+5. **Persistent styling** in `.bpmn` files via `mflex:Style` extension element.
+6. **Resize and dimension control** with custom handles and numeric inputs.
+7. **Collapse / expand** for SubProcesses; zoom to selection.
+8. **Free text insertion** anywhere on the canvas.
+9. **Copy / paste** via Ctrl/Cmd+C / Ctrl/Cmd+V.
+10. **Zero regression** on existing bpmn-js toolbar (New, Open, Save, Undo/Redo).
 
 ### 3.2 Non-goals (v1)
 
-- Freeform non-BPMN shapes (sticky notes, generic rectangles) on the same canvas — candidate for v2 “annotations layer.”
-- Real-time multi-user cursors (Miro collaboration).
-- Full rich-text HTML inside labels (Miro-level); v1 targets **plain text + limited inline emphasis** where `bpmn-js` allows.
-- Camunda/Zeebe execution properties unless separately requested.
+- ~~Freeform non-BPMN sticky notes~~ *(now IN scope — implemented via TextAnnotation + stickyFill)*
+- Real-time multi-user cursors.
+- Full rich-text HTML inside labels.
+- Camunda/Zeebe execution properties.
+- Copy/paste buttons in the context toolbar *(user removed; keyboard shortcuts only)*.
 
 ---
 
 ## 4. Reference: Miro object model (target UX)
 
-Miro board items expose a consistent **`style` object** when selected ([Web SDK reference](https://developers.miro.com/docs/web-sdk-reference-guide)):
+| Style property | Applies to | v1 status |
+|----------------|------------|-----------|
+| `fillColor` | Shapes, stickies | ✅ Via `modeling.setColor` + `stickyFill` |
+| `color` (text) | Text, shapes | ✅ `textColor` in `mflex:Style` |
+| `fontFamily`, `fontSize` | Text, shapes | ✅ |
+| `textAlign` | Text, shapes | ✅ |
+| `bold`, `italic`, `underline` | Text | ✅ |
+| `borderWidth`, `borderColor` | Shapes | ✅ `borderWidth`; `borderColor` in schema, UI pending |
+| `width`, `height` | Shapes | ✅ Resize handles + numeric inputs |
+| `fillOpacity` | Shapes | 📋 Schema ready, UI slider pending v2 |
 
-| Style property | Applies to | Purpose |
-|----------------|------------|---------|
-| `fillColor` / `fillOpacity` | Shapes, text, stickies | Background |
-| `color` (text) | Text, shapes | Foreground / label color |
-| `fontFamily`, `fontSize` | Text, shapes | Typography |
-| `textAlign`, `textAlignVertical` | Text, shapes | Alignment |
-| `borderColor`, `borderWidth`, `borderStyle`, `borderOpacity` | Shapes | Outline |
-| `bold`, `italic`, `underline`, `strike` | Text | Emphasis |
-| `width`, `height` (item-level) | Text, shapes, frames | Dimensions |
+**Miro interaction patterns implemented:**
 
-**Miro interaction patterns to mirror:**
-
-- **Selection → context toolbar** (not buried in a side panel only).
-- **Drag handles** on selection bbox for resize ([Text — white dot / borders](https://help.miro.com/hc/en-us/articles/360017572094-Text)).
-- **Create frame around selection** ([Frames](https://help.miro.com/hc/en-us/articles/360018261813-Frames)) → maps to **Participant/Pool/Lane grouping** or **SubProcess** in BPMN, not a non-standard frame primitive in v1.
-- **Copy formatting** shortcut (Ctrl/Cmd+Alt+C/V) ([Text help](https://help.miro.com/hc/en-us/articles/360017572094-Text)).
-
----
-
-## 5. BPMN technical baseline (how we extend without forking)
-
-Official `bpmn-js` extension points relevant to this spec:
-
-| Capability | Mechanism | Reference |
-|------------|-----------|-----------|
-| Fill/stroke colors (persisted) | `modeling.setColor(elements, { stroke, fill })` — BPMN in Color | [colors example](https://github.com/bpmn-io/bpmn-js-examples/tree/main/colors) |
-| Color picker UX | `bpmn-js-color-picker` module (context pad) | [bpmn-js-color-picker](https://github.com/bpmn-io/bpmn-js-color-picker) |
-| Per-render overrides | `eventBus` `render.shape` / `render.connection` → `context.attrs` | [Rendering system](https://deepwiki.com/bpmn-io/bpmn-js/3-rendering-system) |
-| Global font defaults | `textRenderer.defaultStyle` / `externalStyle` | [bpmn.io blog 2.1](https://bpmn.io/blog/posts/2018-bpmn-js-2-1-0) |
-| Custom properties UI | `bpmn-js-properties-panel` + custom `PropertiesProvider` + **moddle extension** | [properties-panel](https://github.com/bpmn-io/bpmn-js-properties-panel/), [custom extensions](https://deepwiki.com/bpmn-io/bpmn-js-examples/4.2-custom-properties-panel-extensions) |
-| SubProcess minimize/maximize | `modeling.toggleCollapse(element)` + drilldown overlays | [collapsed subprocesses](https://bpmn.io/blog/posts/2022-bpmn-js-900-collapsed-subprocesses) |
-| Custom element drawing | `BaseRenderer` module (`additionalModules`) | [custom rendering example](https://github.com/bpmn-io/bpmn-js-example-custom-rendering) |
-
-**Architectural rule:** New behavior ships as **`additionalModules`** + CSS + optional side panel DOM — the current `src/main.js` entrypoint only gains a single `import './bootstrap-mflex.js'` (or similar) when implementation starts.
+- **Selection → context toolbar** anchored 20px above selection bounding box.
+- **Drag handles** — 8 white-square handles on selection bbox (mflex-rh).
+- **Click-to-place** from panel (vs. Miro's drag — ours is superior for keyboard users).
+- **Sticky notes** with background colors matching Miro's note palette.
 
 ---
 
-## 6. Product concept: “MFlex” layer
+## 5. Technical baseline
 
-**MFlex** (working name: **Miro-style Flexibility layer**) sits above `diagram-js` / `bpmn-js`:
+**Stack:**
+
+| Layer | Technology |
+|-------|-----------|
+| Bundler | Vite 5 |
+| BPMN library | bpmn-js v17.11.1 |
+| Diagramming core | diagram-js (bundled in bpmn-js) |
+| BPMN model | moddle + bpmn-moddle |
+| Custom extension | mflex moddle descriptor |
+
+**Key `bpmn-js` extension points used:**
+
+| Capability | Mechanism |
+|------------|-----------|
+| Fill/stroke colors | `modeling.setColor(elements, { stroke, fill })` |
+| Per-element typography/style | Direct SVG mutation via `canvas.getGraphics(element)` |
+| Custom resize behavior | `MflexResizeRules` via `additionalModules` |
+| Shape creation from panel | `create.start(clickEvent, shape)` — native palette mechanism |
+| Style persistence | `mflex:Style` in `extensionElements`, persisted on `saveXML` |
+| Style restoration | `import.done` event → `_loadFromModdle` → `_reapplyAll` |
+| Re-apply after re-render | `element.changed` + `shape.added` events with `setTimeout(fn, 30)` |
+
+---
+
+## 6. MFlex layer architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  App chrome (existing topbar: New/Open/Save/Undo)           │
-├─────────────────────────────────────────────────────────────┤
-│  MFlex Context Toolbar (NEW) — selection-driven             │
-├──────────────────────────────┬──────────────────────────────┤
-│  BPMN Canvas (bpmn-js)       │  MFlex Inspector (NEW, opt.) │
-│  + palette / context pad     │  Advanced props + BPMN ids     │
-├──────────────────────────────┴──────────────────────────────┤
-│  diagram-js overlays: resize handles, compact badges        │
-└─────────────────────────────────────────────────────────────┘
+bpmn-js-app/
+  src/
+    main.js                        # BpmnModeler init + MFlex bootstrap
+    style.css                      # Global canvas styles
+    mflex/
+      index.js                     # Module exports + initMflex()
+      moddle/
+        mflex.json                 # mflex:Style moddle descriptor
+      features/
+        style-applier/
+          index.js                 # In-memory style Map + SVG patching + moddle persistence
+        context-toolbar/
+          index.js                 # Dynamic toolbar (selection-driven groups)
+        shape-panel/
+          index.js                 # Left sidebar: sections, items, click-to-place
+        resize/
+          index.js                 # MflexResizeHandles + MflexResizeRules
+        free-interaction/
+          index.js                 # MflexMoveRules, MflexFreeText, MflexCopyPaste
+        custom-renderer/
+          index.js                 # MflexRenderer (additionalModules)
+      styles/
+        context-toolbar.css
+        resize-handles.css
+        shape-panel.css
+  index.html
+  package.json
+  vite.config.js (if present)
+  SPEC.md
+  .gitignore                       # node_modules/, dist/, .vite excluded
+```
+
+**Module registration in `main.js`:**
+
+```javascript
+import MflexModule from './mflex/index.js';
+import mflexDescriptor from './mflex/moddle/mflex.json';
+import { initMflex } from './mflex/index.js';
+
+const modeler = new BpmnModeler({
+  container: '#canvas',
+  additionalModules: [MflexModule],
+  moddleExtensions: { mflex: mflexDescriptor },
+});
+
+const { applier, toolbar, shapePanel } = initMflex(modeler);
+window.__mflex = { applier, toolbar, shapePanel };
 ```
 
 ---
 
-## 7. Functional requirements
+## 7. Shape Panel (implemented)
 
-### 7.1 Universal selection behavior (FR-SEL)
+The left-hand panel provides Miro-style one-click shape insertion, organised in collapsible sections.
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-SEL-01 | Single-click selects element; shows MFlex toolbar anchored above selection | P0 |
-| FR-SEL-02 | Shift+click and marquee multi-select supported | P0 |
-| FR-SEL-03 | Multi-select toolbar shows **common** style controls (intersection of capabilities) | P0 |
-| FR-SEL-04 | Connection (sequence flow, message flow, association) selection exposes line color & stroke width where valid | P0 |
-| FR-SEL-05 | Label selection (external labels) exposes font controls independent of parent shape when technically feasible | P1 |
+### 7.1 Sections and items
 
-### 7.2 Colors and opacity (FR-COL) — addresses G2
+| Section | Items | Open by default |
+|---------|-------|-----------------|
+| **Sticky Notes** | Yellow, Green, Blue, Pink, Purple, Orange | ✅ Yes |
+| **Basic Shapes** | Rectangle, Rounded Rect, Circle, Oval, Diamond, Triangle, Parallelogram, Cylinder/DB, Hexagon, Text Box, Note, Arrow | ✅ Yes |
+| **Flowchart** | Start/End, Process, Decision, Terminator, Data, Database, Annotation, Pool | ✅ Yes |
+| **BPMN Tasks** | Generic, User, Service, Send, Receive, Manual, Script, Business Rule, Sub-Process, Call Activity | No |
+| **BPMN Events** | Start, Timer/Message/Signal/Cond Start, Interm. Catch/Throw, End, Message/Error/Terminate End | No |
+| **BPMN Gateways** | Exclusive, Inclusive, Parallel, Event-Based, Complex | No |
+| **Swimlanes** | Pool / Lane | No |
+| **Data & Artifacts** | Data Object, Data Store, Group, Annotation | No |
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-COL-01 | **Fill color** picker for tasks, subprocesses, pools, lanes, gateways, events, data objects, groups | P0 |
-| FR-COL-02 | **Text/label color** picker for name labels | P0 |
-| FR-COL-03 | **Border/stroke color** picker | P0 |
-| FR-COL-04 | Preset palette (12–16 colors) + hex input + “reset to theme default” | P0 |
-| FR-COL-05 | Fill opacity slider 0–100% (store as extension attribute; apply at render) | P1 |
-| FR-COL-06 | Persist via `modeling.setColor` for stroke/fill where supported; overflow attributes in moddle `mflex:` for opacity/text color | P0 |
-| FR-COL-07 | Undo/redo integrates with command stack | P0 |
+Panel also includes a **search / filter** input that filters items across all sections in real time.
 
-**BPMN note:** Event definitions (icons inside circles) keep standard glyphs; fill applies to **circle background** only, not replacing BPMN icons.
+### 7.2 Click-to-place interaction
 
-### 7.3 Typography (FR-TXT) — addresses G4
+1. User clicks a panel item.
+2. `create.start(clickEvent, shape)` is called — same mechanism as bpmn-js's own palette.
+3. A ghost shape follows the cursor across the canvas.
+4. User clicks anywhere on the canvas → shape is placed centered at that point.
+5. Press `Escape` at any time to cancel.
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-TXT-01 | Font family dropdown: at minimum **Arial, Helvetica, Inter, Roboto, Georgia, Times New Roman, Courier New** (+ system default) | P0 |
-| FR-TXT-02 | Font size: 8–48px preset list + numeric input | P0 |
-| FR-TXT-03 | Bold, italic, underline toggles (store in `mflex:textStyle`; render via custom label provider or HTML overlay where supported) | P1 |
-| FR-TXT-04 | Horizontal align: left, center, right | P0 |
-| FR-TXT-05 | Vertical align: top, middle, bottom (tasks/subprocesses) | P1 |
-| FR-TXT-06 | Changing font on a **partial** text selection is out of scope v1 (Miro also limits this on some widgets) | — |
-
-**Implementation note:** Global defaults via `textRenderer`; per-element overrides via moddle + `render.shape` label attrs or custom `TextRenderer` module.
-
-### 7.4 Resize and dimensions (FR-SIZ) — addresses G1
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-SIZ-01 | 8-point resize handles on selection for resizable BPMN elements (Task, SubProcess, Pool, Lane, Group, TextAnnotation, expanded SubProcess) | P0 |
-| FR-SIZ-02 | Shift+drag preserves aspect ratio where BPMN allows | P1 |
-| FR-SIZ-03 | Toolbar “Dimensions” popover: width × height in px; apply via `modeling.resizeShape` | P0 |
-| FR-SIZ-04 | Min/max size guards per element type (e.g. events stay circular — **resize adjusts radius uniformly**) | P0 |
-| FR-SIZ-05 | Disable resize for elements where BPMN DI forbids free sizing; show tooltip | P0 |
-
-### 7.5 Collapse, expand, and “compact” (FR-COLP) — addresses G3
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-COLP-01 | **SubProcess:** toolbar toggle Collapse ↔ Expand using `modeling.toggleCollapse` | P0 |
-| FR-COLP-02 | **SubProcess:** drilldown affordance when collapsed (native overlay) — do not disable | P0 |
-| FR-COLP-03 | **Call Activity:** display as collapsed tile by default; link to called process reference in inspector | P1 |
-| FR-COLP-04 | **Compact mode** (presentation-only, `mflex:compact=true`): hide label area inside shape, show icon + short title bar — for Task, Gateway — **does not change BPMN type** | P2 |
-| FR-COLP-05 | “Maximize view” = zoom selection to fit viewport (`canvas.zoom('fit-viewport', element)`), not element mutation | P0 |
-
-**Clarification:** Miro does not truly “minimize” arbitrary shapes to an icon-only state ([Frames](https://help.miro.com/hc/en-us/articles/360018261813-Frames) — resize only). Our BPMN-aligned mapping:
-
-| User phrase | BPMN behavior |
-|-------------|---------------|
-| Minimize subprocess | Collapse (`isExpanded=false`) |
-| Maximize on screen | Zoom to element |
-| Make task smaller | Resize + optional compact mode |
-
-### 7.6 Object flexibility and editing (FR-FLX) — addresses G1
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-FLX-01 | Direct-edit label on double-click (existing behavior retained) | P0 |
-| FR-FLX-02 | Drag-to-move, snaplines, connect via connection rules (existing) | P0 |
-| FR-FLX-03 | Context pad retains BPMN operations (delete, connect, replace type) | P0 |
-| FR-FLX-04 | **Replace element type** from toolbar dropdown (subset: Task ↔ UserTask ↔ ServiceTask, etc.) | P1 |
-| FR-FLX-05 | **Format painter:** pick style from element A, apply to B (colors + font + border) | P1 |
-| FR-FLX-06 | **Create container around selection:** wrap in SubProcess or Group (user choice) | P1 |
-
-### 7.7 Inspector panel (FR-INS)
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-INS-01 | Right docked panel, collapsible, 280–360px width | P1 |
-| FR-INS-02 | Sections: **Appearance** (mirror toolbar), **BPMN** (id, name, documentation), **Advanced** (listeners — optional later) | P1 |
-| FR-INS-03 | Register custom `PropertiesProvider` — do not fork Camunda provider unless needed | P1 |
-
-### 7.8 Persistence and interchange (FR-IO)
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-IO-01 | Save/load `.bpmn` includes all `mflex:` attributes and BPMN in Color DI | P0 |
-| FR-IO-02 | Import from standard BPMN 2.0 without extensions renders with default theme | P0 |
-| FR-IO-03 | Export warning if viewer lacks extensions (soft — colors still in XML) | P2 |
-| FR-IO-04 | Document extension URI in README: `xmlns:mflex="http://example.com/mflex/1.0"` (final URI TBD) | P0 |
+**Sticky note fill:** Before `create.start`, the shape's `businessObject.__mflexStickyFill` is set to the note's fill color. `StyleApplier.shape.added` reads this flag, stores the color in `_styles`, and calls `_applyAnnotationStyle` after a 30ms delay (allowing bpmn-js to finish rendering first).
 
 ---
 
-## 8. Moddle extension schema (draft)
+## 8. Sticky Notes (implemented)
+
+Sticky notes use `bpmn:TextAnnotation` as the underlying BPMN element. The default bracket rendering is replaced with a clean colored box.
+
+### 8.1 Available colors
+
+| Label | Fill | Border |
+|-------|------|--------|
+| Yellow | `#fef9c3` | `#ca8a04` |
+| Green | `#dcfce7` | `#16a34a` |
+| Blue | `#dbeafe` | `#2563eb` |
+| Pink | `#fce7f3` | `#db2777` |
+| Purple | `#f3e8ff` | `#9333ea` |
+| Orange | `#ffedd5` | `#ea580c` |
+
+### 8.2 Rendering approach
+
+`StyleApplier._applyAnnotationStyle(element, fillColor, gfx)`:
+
+1. Hides all `<path>` elements in `.djs-visual` (removes the BPMN bracket).
+2. Finds or creates a `<rect class="mflex-bg">` covering the full element bounds.
+3. If `stickyFill` is set: applies fill color + `rx/ry: 5` (rounded corners), no stroke.
+4. If no fill: renders as a clean text box — white background, `#9ca3af` border, `rx/ry: 4`.
+5. Both `setAttribute` and `style.fill` are set to ensure CSS does not override.
+
+This method is called on `shape.added`, `element.changed`, and directly from `setStyle`.
+
+### 8.3 Plain TextAnnotation (Text Box)
+
+All `bpmn:TextAnnotation` elements (even without `stickyFill`) receive the clean-box treatment — white background, subtle gray border, bracket hidden. This provides a usable "text box" primitive.
+
+---
+
+## 9. Context Toolbar (implemented)
+
+### 9.1 Placement
+
+- Appears **20px above** the selection bounding box, centered horizontally.
+- Flips below if clipped by the top edge or the topbar (48px height).
+- Hidden during direct text editing (`directEditing.activate` event).
+- Re-shown on `directEditing.complete` / `directEditing.cancel`.
+
+### 9.2 Control groups — per element type
+
+| Element category | Visible groups |
+|-----------------|----------------|
+| **Label / external label** | Text color, Font family, Font size, Emphasis (B/I/U), Align |
+| **Connection** (SequenceFlow etc.) | Border color, Border width |
+| **Participant / Lane** | Fill, Border, Border width, Size, Add Lane, Text direction toggle |
+| **SubProcess / CallActivity** | Fill, Text color, Font, Font size, Emphasis, Align, Border, Border width, Size, Collapse toggle |
+| **Task** (all variants) | Fill, Text color, Font, Font size, Emphasis, Align, Border, Border width, Size |
+| **Event** | Fill, Border, Border width, Size |
+| **Gateway** | Fill, Border, Border width, Size |
+| **TextAnnotation** | Text color, Font, Font size, Emphasis, Align, Border, Border width, Size |
+| **Data** (Object / Store) | Fill, Border, Border width, Size |
+| **Group** | Fill, Border, Border width, Size |
+
+### 9.3 Fill / color controls
+
+- **20-color preset palette** (whites, pastels, darks, blacks).
+- **Hex input** field for exact values.
+- Preset palette includes sticky-note colors for quick sticky tinting.
+- Fill applied via `modeling.setColor` (bpmn-js standard — persisted in BPMN DI).
+
+### 9.4 Typography controls
+
+- **Font family** dropdown: Arial, Helvetica, Inter, Roboto, Georgia, Times New Roman, Courier New, Verdana, Tahoma.
+- **Font size** selector: 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48 px + free numeric input.
+- **Bold / Italic / Underline** toggle buttons.
+- **Horizontal align**: Left / Center / Right.
+- Applied via `StyleApplier.setStyle` → direct SVG text mutation → persisted in `mflex:Style`.
+
+### 9.5 Border controls
+
+- **Border width**: 1 / 2 / 3 / 4 px presets.
+- Applied via `StyleApplier.setStyle` → SVG `stroke-width` mutation.
+
+### 9.6 Size controls
+
+- **Width** and **Height** numeric inputs (px).
+- Applied via `modeling.resizeShape`.
+
+### 9.7 Swimlane-specific controls
+
+- **Add Lane** button: adds a sub-lane via `modeling.addLane`.
+- **Text direction** toggle: cycles between Horizontal / Vertical.
+
+### 9.8 Collapse control (SubProcess)
+
+- Toggle button: Collapse ↔ Expand.
+- Uses `modeling.toggleCollapse(element)`.
+
+### 9.9 Intentionally excluded from toolbar
+
+- Copy / Paste buttons (removed per user request — keyboard shortcuts only: Ctrl/Cmd+C / V).
+
+---
+
+## 10. Moddle extension schema
 
 Namespace prefix: **`mflex`**
+URI: `http://mflex/1.0`
+
+### 10.1 mflex:Style attributes
 
 ```xml
 <bpmn2:task id="Task_1" name="Review">
@@ -221,243 +331,232 @@ Namespace prefix: **`mflex`**
       fontSize="14"
       textColor="#1a1a1a"
       textAlign="center"
-      textAlignVertical="middle"
-      fillOpacity="0.9"
-      borderColor="#ff7400"
-      borderWidth="2"
       bold="false"
       italic="false"
       underline="false"
-      compact="false"
+      borderWidth="2"
+      textDirection="horizontal"
+      stickyFill="#fef9c3"
     />
   </bpmn2:extensionElements>
 </bpmn2:task>
 ```
 
-| Attribute | Type | Notes |
-|-----------|------|-------|
-| `fontFamily` | string | |
-| `fontSize` | number | px |
-| `textColor` | string | hex |
-| `textAlign` | enum | left \| center \| right |
-| `textAlignVertical` | enum | top \| middle \| bottom |
-| `fillOpacity` | number | 0–1 |
-| `borderColor` | string | hex |
-| `borderWidth` | number | px |
-| `bold`, `italic`, `underline` | boolean | |
-| `compact` | boolean | presentation-only |
+| Attribute | Type | Status | Notes |
+|-----------|------|--------|-------|
+| `fontFamily` | String | ✅ Implemented | Font name |
+| `fontSize` | Integer | ✅ Implemented | px |
+| `textColor` | String | ✅ Implemented | hex |
+| `textAlign` | String | ✅ Implemented | `left` / `center` / `right` |
+| `textAlignVertical` | String | 📋 Schema only | `top` / `middle` / `bottom` — UI pending |
+| `fillOpacity` | Real | 📋 Schema only | 0–1 — UI slider pending |
+| `borderColor` | String | 📋 Schema only | hex — UI pending |
+| `borderWidth` | Integer | ✅ Implemented | px |
+| `bold` | Boolean | ✅ Implemented | |
+| `italic` | Boolean | ✅ Implemented | |
+| `underline` | Boolean | ✅ Implemented | |
+| `compact` | Boolean | 📋 Schema only | presentation-only compact mode — pending |
+| `textDirection` | String | ✅ Implemented | `horizontal` / `vertical` (Participant/Lane) |
+| `stickyFill` | String | ✅ Implemented | hex fill for TextAnnotation sticky notes |
 
-**Colors (fill/stroke):** Prefer [BPMN in Color](https://github.com/bpmn-miwg/bpmn-in-color) via `modeling.setColor`; use `mflex` only for properties not covered.
-
----
-
-## 9. UI specification: MFlex Context Toolbar
-
-### 9.1 Placement and behavior
-
-- Appears **8px above** the selection bounding box, centered; flips below if clipped by viewport.
-- Hidden when nothing selected or during canvas pan with spacebar.
-- Sticky while typing in direct-edit mode (font controls apply to element).
-
-### 9.2 Toolbar groups (left → right)
-
-| Group | Controls | Elements |
-|-------|----------|----------|
-| **Type** | Element icon + name (read-only) + “Change type” submenu | Shapes |
-| **Fill** | Color swatch → popover (palette, hex, reset) | Shapes |
-| **Text** | Color, font family, font size | Shapes + labels |
-| **Border** | Color, width (1/2/3/4) | Shapes |
-| **Align** | H-align, V-align | Tasks, subprocesses, annotations |
-| **Size** | W×H inputs, lock aspect | Resizable |
-| **Collapse** | Toggle (subprocess only) | SubProcess |
-| **View** | Zoom to fit selection | All |
-| **More** | Format painter, create container, reset styles | All |
-
-### 9.3 Multi-selection rules
-
-- **Fill / text / border / font:** apply to all selected **if same element category** (all tasks, or all flows).
-- Mixed selection (Task + Gateway): show only **colors** and **view** actions.
-- Show count badge: `3 elements`.
-
-### 9.4 Visual design tokens (align with Miro-like clarity)
-
-- Toolbar: white background, `border-radius: 8px`, shadow `0 4px 16px rgba(0,0,0,0.12)`.
-- Active toggle: `#4262ff` accent (Miro-adjacent blue).
-- Disabled control: 40% opacity + tooltip on hover.
+**Colors (fill/stroke):** Stored as BPMN in Color DI attributes (`bioc:fill`, `bioc:stroke`) via `modeling.setColor` — these are NOT in `mflex:Style`. The `mflex:Style` element only holds properties not covered by the standard.
 
 ---
 
-## 10. Element capability matrix
+## 11. StyleApplier — implementation detail
 
-Defines which controls are **enabled**, **disabled**, or **N/A** per BPMN type.
+`src/mflex/features/style-applier/index.js`
 
-| Element | Fill | Text color | Font | Border | Resize | Collapse | Compact |
-|---------|------|------------|------|--------|--------|----------|---------|
-| Start/End/Intermediate Event | ● | ● | ● | ○ (circle stroke) | ● (uniform) | N/A | P2 |
-| Task / Activity | ● | ● | ● | ● | ● | N/A | P2 |
-| SubProcess | ● | ● | ● | ● | ● | ● | N/A |
-| Gateway | ● | ● | ● | ○ | ● | N/A | P2 |
-| Pool / Lane | ● | ● | ● | ● | ● | N/A | N/A |
-| DataObject / Store | ● | ● | ● | ● | ● | N/A | N/A |
-| TextAnnotation | ○ | ● | ● | ○ | ● | N/A | N/A |
-| Group | ○ | ○ | ○ | ● (dashed) | ● | N/A | N/A |
-| SequenceFlow | ○ | ○ | ○ | ● (line) | N/A | N/A | N/A |
-| MessageFlow | ○ | ○ | ○ | ● | N/A | N/A | N/A |
-| Association | ○ | ○ | ○ | ● | N/A | N/A | N/A |
+### 11.1 In-memory store
 
-Legend: ● = full support, ○ = limited, N/A = hidden
+`this._styles: Map<elementId, StyleObject>` — holds live styles for immediate rendering, decoupled from moddle round-trips during editing.
 
----
+### 11.2 Event hooks
 
-## 11. Module architecture (implementation blueprint)
+| Event | Action |
+|-------|--------|
+| `element.changed` | `setTimeout(() => _applyToSvg(element), 30)` — re-applies after every bpmn-js re-render |
+| `element.changed` (TextAnnotation) | `setTimeout(() => _applyAnnotationStyle(element), 30)` |
+| `element.changed` (label of Participant/Lane) | Re-applies parent's `textDirection` |
+| `shape.added` | Sets default `textDirection: 'horizontal'` for Participant/Lane; picks up `__mflexStickyFill` flag for sticky notes; schedules annotation style + text direction with `setTimeout(fn, 30)` |
+| `import.done` | `_loadFromModdle()` → `_reapplyAll()` |
 
-Planned package layout **alongside** existing app (not modifying `main.js` until merge):
+**Why `setTimeout(fn, 30)` instead of `requestAnimationFrame`:** bpmn-js sometimes fires additional synchronous re-renders after its own `element.changed` handler. A 30ms delay ensures our SVG patch runs after all bpmn-js rendering is complete for that event cycle.
 
-```
-bpmn-js-app/
-  src/                          # EXISTING — frozen in spec phase
-  mflex/                        # NEW — all flexibility code
-    index.js                    # exports MflexModule bundle
-    moddle/mflex.json           # moddle descriptor
-    features/
-      context-toolbar/          # UI + selection sync
-      style-applier/             # modeling + setColor + mflex attrs
-      typography/                # textRenderer overrides
-      resize/                    # enhanced handles + dimension popover
-      collapse/                  # subprocess toggle + zoom actions
-      format-painter/
-      properties-provider/      # inspector groups
-    styles/
-      context-toolbar.css
-      color-picker.css
-  SPEC.md                       # this document
-```
-
-**Module registration (future one-liner):**
+### 11.3 Public API
 
 ```javascript
-import MflexModule from '../mflex';
-const modeler = new BpmnModeler({
-  container: '#canvas',
-  additionalModules: [MflexModule],
-  moddleExtensions: { mflex: mflexDescriptor },
-  textRenderer: { defaultStyle: { fontFamily: 'Inter, Arial, sans-serif' } },
-  bpmnRenderer: { defaultFillColor: '#ffffff', defaultStrokeColor: '#1a1a1a' }
-});
+applier.setStyle(elements, attrs)    // Set mflex style attributes
+applier.getStyle(element)            // Read mflex style for element
+applier.setColor(elements, {fill, stroke})  // Delegate to modeling.setColor
+applier.getColor(element)            // Read fill/stroke from BPMN DI
+applier.supports(element, control)  // Check if element supports a control
+applier.persistToModdle()           // Called before saveXML
 ```
 
-**Recommended OSS dependencies to evaluate in implementation phase:**
+---
 
-| Package | Role |
-|---------|------|
-| `bpmn-js-color-picker` | Bootstrap color UX |
-| `bpmn-js-properties-panel` | Inspector host |
-| `@bpmn-io/properties-panel` | Entry components |
+## 12. Swimlane text direction (implemented)
+
+bpmn-js renders Pool/Lane names with `transform="translate(0, H) rotate(270)"` on a `<g>` inside `.djs-visual` — always rotated, by design.
+
+**Our override (`_applyTextDirection`):**
+
+1. Finds `<g transform="... rotate(...)">` elements inside `.djs-visual`.
+2. Strips the `rotate(...)` part, leaving `translate(...)` intact.
+3. Repositions the inner `<text>` to `x=15, y=height/2` (centered in the 30px header strip).
+4. Sets `text-anchor: middle`, `dominant-baseline: middle`.
+5. Removes per-`<tspan>` x/y/dy offsets.
+
+Re-applied on every `element.changed` (via `setTimeout`) so it survives any bpmn-js re-render triggered by text edits, resizes, or moves.
+
+Default `textDirection: 'horizontal'` is set automatically in `_styles` when a Participant or Lane is added to the canvas.
 
 ---
 
-## 12. User stories and acceptance criteria
+## 13. Element capability matrix
 
-### US-01 — Color a task like Miro
+| Element | Fill | Text color | Font | Border | Resize | Collapse | Sticky fill |
+|---------|------|------------|------|--------|--------|----------|-------------|
+| Start / End / Intermediate Event | ● | — | — | ● | ● (uniform) | N/A | N/A |
+| Task (all variants) | ● | ● | ● | ● | ● | N/A | N/A |
+| SubProcess | ● | ● | ● | ● | ● | ● | N/A |
+| Call Activity | ● | ● | ● | ● | ● | ● | N/A |
+| Gateway | ● | — | — | ● | ● | N/A | N/A |
+| Pool / Participant | ● | — | — | ● | ● | N/A | N/A |
+| Lane | ● | — | — | ● | ● | N/A | N/A |
+| TextAnnotation | ● (white box) | ● | ● | ● | ● | N/A | ● |
+| Group | ● | — | — | ● | ● | N/A | N/A |
+| DataObject / DataStore | ● | — | — | ● | ● | N/A | N/A |
+| SequenceFlow / Connection | — | — | — | ● (line) | N/A | N/A | N/A |
+| Label (external) | — | ● | ● | — | N/A | N/A | N/A |
 
-**As a** modeler, **I want** to set background and text colors on a task **so that** it matches our workshop color language.
-
-**Acceptance:**
-
-- Select task → fill swatch → choose `#FFF59D` → task background updates immediately.
-- Save BPMN → reopen → color preserved.
-- Undo reverts color.
-
-### US-02 — Change font on a gateway label
-
-**As a** modeler, **I want** Arial 16px bold on a gateway name **so that** it matches slide decks.
-
-**Acceptance:**
-
-- Font family and size apply to gateway label after deselect.
-- Exported XML contains `mflex:style` attributes.
-- Round-trip does not lose gateway type.
-
-### US-03 — Resize subprocess and collapse it
-
-**As a** modeler, **I want** to shrink a subprocess and collapse it **so that** the diagram stays readable.
-
-**Acceptance:**
-
-- Resize handles change subprocess bounds.
-- Collapse toggle sets `isExpanded=false` and shows drilldown overlay.
-- Drilldown opens child plane; breadcrumb returns to parent.
-
-### US-04 — Format painter across tasks
-
-**As a** modeler, **I want** to copy style from one task to three others **so that** I don’t repeat formatting.
-
-**Acceptance:**
-
-- Copy style → multi-select tasks → apply style → all match source colors/font/border.
-- Does not change task IDs or types.
-
-### US-05 — Zoom to element (“maximize”)
-
-**As a** presenter, **I want** to zoom the viewport to the selected element **so that** the audience sees detail.
-
-**Acceptance:**
-
-- “Zoom to selection” fits element with padding; no XML mutation.
+Legend: ● = supported, — = not applicable / disabled
 
 ---
 
-## 13. Phased delivery plan
+## 14. Free interaction module (implemented)
 
-| Phase | Scope | Outcome |
-|-------|-------|---------|
-| **P0 — Foundation** | `mflex` moddle, `style-applier`, integrate `bpmn-js-color-picker`, context toolbar (fill/text/border), undo | Colors work end-to-end |
-| **P1 — Typography & resize** | Font family/size, align, dimension popover, enhanced handles | Addresses G1 + G4 |
-| **P2 — Collapse & containers** | SubProcess collapse UX, wrap-in-subprocess, format painter | Addresses G3 |
-| **P3 — Inspector & polish** | Right panel, compact mode, opacity, keyboard shortcuts | Parity with Miro help articles |
-| **P4 — Optional annotations** | Non-BPMN sticky layer (if product still needs pure Miro widgets) | Stretch |
+`src/mflex/features/free-interaction/index.js` exports three diagram-js modules:
 
-**Merge policy:** Each phase adds `mflex/` code + a feature flag in a **new** bootstrap file; flip flag to enable in dev; only replace `main.js` import when stable.
+| Class | Role |
+|-------|------|
+| `MflexMoveRules` | Overrides move rules to allow free repositioning of all elements including items inside pools/lanes |
+| `MflexFreeText` | Allows double-clicking on empty canvas to insert a `bpmn:TextAnnotation` (free text box) at that position |
+| `MflexCopyPaste` | Keyboard copy/paste (Ctrl/Cmd+C, Ctrl/Cmd+V) for selected elements |
 
 ---
 
-## 14. Risks and mitigations
+## 15. Resize module (implemented)
+
+`src/mflex/features/resize/index.js` exports two diagram-js modules:
+
+| Module | Role |
+|--------|------|
+| `MflexResizeHandles` | Replaces default `.djs-resizer` with 8 white square corner/edge handles (`mflex-rh` elements) |
+| `MflexResizeRules` | Overrides `ResizeBehavior` to allow resizing of element types that bpmn-js locks by default |
+
+**Handle appearance:** White squares (`#ffffff`), 8×8px, `border: 1.5px solid #9ca3af`, `border-radius: 2px`, pointer cursor.
+**Selected state:** Blue fill (`#3b82f6`), white border.
+
+---
+
+## 16. User stories and acceptance status
+
+### US-01 — Color a task
+**As a** modeler, **I want** to set background and text colors on a task.
+- ✅ Select task → fill swatch in toolbar → choose color → immediate update.
+- ✅ Save BPMN → reopen → color preserved via BPMN in Color DI.
+- ✅ Undo reverts color.
+
+### US-02 — Change font on a label
+**As a** modeler, **I want** Arial 16px bold on a gateway or task name.
+- ✅ Font family and size apply immediately.
+- ✅ Exported XML contains `mflex:style` attributes.
+- ✅ Round-trip does not lose element type.
+
+### US-03 — Resize and collapse subprocess
+**As a** modeler, **I want** to shrink a subprocess and collapse it.
+- ✅ Resize handles change bounds.
+- ✅ Collapse toggle sets `isExpanded=false`.
+- ✅ Drilldown opens child plane; breadcrumb returns to parent.
+
+### US-04 — Place a sticky note
+**As a** workshop facilitator, **I want** to drop colored sticky notes anywhere on the canvas.
+- ✅ Click sticky note color in panel → ghost follows cursor → click canvas to place.
+- ✅ Correct fill color applied; bracket hidden; clean rounded box.
+- ✅ Double-click to type inside.
+
+### US-05 — Swimlane horizontal text
+**As a** modeler, **I want** pool/lane names to read horizontally (not rotated).
+- ✅ New pools/lanes default to horizontal text.
+- ✅ Text direction toggle in toolbar switches between Horizontal / Vertical.
+- ✅ Survives text edits and re-renders.
+
+### US-06 — Free text anywhere
+**As a** modeler, **I want** to double-click the empty canvas to add a text annotation.
+- ✅ Double-click on empty canvas creates a TextAnnotation at that position.
+
+### US-07 — Copy and paste
+**As a** modeler, **I want** to copy elements and paste them.
+- ✅ Ctrl/Cmd+C copies selection; Ctrl/Cmd+V pastes near original position.
+- ✅ Copy/paste buttons removed from toolbar (keyboard only).
+
+---
+
+## 17. Persistence and interchange
+
+| Requirement | Status |
+|-------------|--------|
+| Save/load `.bpmn` includes `mflex:` attributes | ✅ `persistToModdle()` called before `saveXML` |
+| Save/load `.bpmn` includes fill/stroke (BPMN in Color) | ✅ Stored by bpmn-js automatically |
+| Import from standard BPMN 2.0 renders with defaults | ✅ `import.done` → `_loadFromModdle` → `_reapplyAll` |
+| mflex extension URI documented | ✅ `http://mflex/1.0` (final URI TBD for production) |
+
+---
+
+## 18. Risks and mitigations
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| BPMN validation rejects custom XML | High | Use `extensionElements` + documented namespace; test with Camunda Modeler import |
-| Label font changes not supported natively | Medium | Custom `TextRenderer` or external label HTML overlay |
-| Multi-select mixed types confuse users | Medium | Capability matrix + disabled controls |
-| Performance on large diagrams | Medium | Debounce style updates; batch `modeling.updateProperties` |
-| “Compact mode” misread as semantic change | Low | Clear UI badge “Presentation only”; not exported as BPMN type change |
+| bpmn-js re-render overwrites SVG patches | High | All patches re-applied on `element.changed` + `shape.added` via `setTimeout(fn, 30)` |
+| `stickyFill` lost across save/load | Medium | `stickyFill` added to `STYLE_ATTRS` list → persisted to moddle on save, reloaded on import |
+| Swimlane text direction reverts on edit | Medium | `element.changed` on the label element re-applies parent's `textDirection` |
+| BPMN validation rejects custom XML | Low | Uses `extensionElements` + documented namespace; standard `bioc:` for colors |
+| Performance on large diagrams (many element.changed) | Medium | `setTimeout` batching; no synchronous style recalculation |
 
 ---
 
-## 15. Success metrics
+## 19. Resolved design decisions
 
-| Metric | Target |
-|--------|--------|
-| Time to apply fill + font to one element | < 5 seconds (3 clicks) |
-| Style persistence across save/reload | 100% for P0 attributes |
-| BPMN 2.0 validity | No invalid XML from appearance-only edits |
-| Existing app regression | All current toolbar actions pass smoke test |
-
----
-
-## 16. Open questions (for implementation kickoff)
-
-1. **Extension URI:** Use company-owned namespace vs. `https://bpmn.io/mflex`?
-2. **Default theme:** Match current `bpmn-js` whites or Miro-like soft gray canvas `#F3F4F6`?
-3. **Compact mode:** Ship in P2 or defer to avoid confusion with collapsed subprocess?
-4. **Camunda compatibility:** Should `mflex` attributes be ignored or shown in Camunda Modeler?
-5. **Annotations layer:** Required for workshop stickies, or is BPMN-only canvas sufficient?
+| Question | Decision |
+|----------|----------|
+| Extension URI | `http://mflex/1.0` (update to company-owned URI before production) |
+| Default canvas color | White (`#ffffff`) — matching bpmn-js default |
+| Sticky notes BPMN type | `bpmn:TextAnnotation` + `stickyFill` attribute — no custom element type |
+| Panel placement | Fixed left sidebar, 220px wide, scrollable |
+| Drag vs. click-to-place | Click-to-place adopted (ghost follows cursor) — same as bpmn-js palette |
+| Copy/paste in toolbar | Removed — keyboard shortcuts only (user preference) |
+| Swimlane default text direction | Horizontal (overrides bpmn-js 270° rotation default) |
+| Clean TextAnnotation rendering | Always applied to ALL TextAnnotations — removes bracket, adds white box |
 
 ---
 
-## 17. References
+## 20. Still open
+
+1. **Extension URI for production:** Use `http://mflex/1.0` vs. company-owned namespace?
+2. **`borderColor` UI:** Schema attribute exists; toolbar control not yet wired.
+3. **`fillOpacity` UI:** Schema attribute exists; slider not yet added to toolbar.
+4. **Format painter:** Pick style from element A → paint to B (Ctrl+Alt+C/V).
+5. **Inspector panel:** Right-docked panel for BPMN ID, documentation, advanced properties.
+6. **Compact mode:** Presentation-only hide-label mode for tasks/gateways.
+7. **Camunda Modeler compatibility:** `mflex:` attributes are preserved on import/export; appearance controls are not shown (ignored silently).
+
+---
+
+## 21. References
 
 ### Miro (UX target)
-
 - [Web SDK reference — style properties](https://developers.miro.com/docs/web-sdk-reference-guide)
 - [Text item SDK](https://developers.miro.com/docs/websdk-reference-text)
 - [Shape item SDK](https://developers.miro.com/miro-ea/docs/shape_shape-1)
@@ -465,28 +564,25 @@ const modeler = new BpmnModeler({
 - [Frames — Help Center](https://help.miro.com/hc/en-us/articles/360018261813-Frames)
 
 ### bpmn-js (implementation)
-
 - [Visual customization (blog)](https://bpmn.io/blog/posts/2018-bpmn-js-2-1-0)
 - [Colors example](https://github.com/bpmn-io/bpmn-js-examples/tree/main/colors)
-- [bpmn-js-color-picker](https://github.com/bpmn-io/bpmn-js-color-picker)
 - [Custom rendering example](https://github.com/bpmn-io/bpmn-js-example-custom-rendering)
 - [Collapsed subprocesses (blog)](https://bpmn.io/blog/posts/2022-bpmn-js-900-collapsed-subprocesses)
 - [Properties panel](https://github.com/bpmn-io/bpmn-js-properties-panel/)
+- [bpmn-js v17 source](https://github.com/bpmn-io/bpmn-js)
 
-### Current baseline
-
-- Local app: `bpmn-js-app/` (unchanged by this spec)
-
----
-
-## 18. Document approval
-
-| Role | Name | Date | Sign-off |
-|------|------|------|----------|
-| Product owner | | | |
-| Engineering | | | |
-| UX | | | |
+### Source repository
+- https://github.com/haripeddi/BPMN
 
 ---
 
-*End of specification v0.1*
+## 22. Document history
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 0.1 | 2026-05-26 | Initial spec — pre-implementation |
+| 1.0 | 2026-05-26 | Full rewrite to reflect v1 implemented codebase |
+
+---
+
+*End of specification v1.0*
