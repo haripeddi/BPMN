@@ -1,0 +1,127 @@
+/* ─── Shape Panel ──────────────────────────────────────────────────────── */
+
+#shape-panel {
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+
+/* Search bar */
+.sp-search-wrap {
+  position: relative;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+.sp-search-icon {
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.sp-search {
+  width: 100%;
+  padding: 6px 8px 6px 28px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: 12px;
+  color: #374151;
+  background: #f8fafc;
+  outline: none;
+  transition: border-color .15s;
+}
+.sp-search:focus {
+  border-color: #3b82f6;
+  background: #fff;
+}
+
+/* Scrollable body */
+.sp-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 12px;
+}
+
+/* Section */
+.sp-section { border-bottom: 1px solid #f1f5f9; }
+
+.sp-sec-hdr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background .1s;
+}
+.sp-sec-hdr:hover { background: #f8fafc; }
+
+.sp-arrow {
+  flex-shrink: 0;
+  transition: transform .15s;
+  transform: rotate(-90deg);
+}
+.sp-section.open .sp-arrow { transform: rotate(0deg); }
+
+/* Items grid */
+.sp-items {
+  display: none;
+  flex-wrap: wrap;
+  padding: 4px 6px 8px;
+  gap: 2px;
+}
+.sp-section.open .sp-items { display: flex; }
+
+/* Individual shape item */
+.sp-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 60px;
+  padding: 7px 4px 6px;
+  border-radius: 6px;
+  cursor: grab;
+  transition: background .1s;
+}
+.sp-item:hover { background: #f0f4ff; }
+.sp-item:active { background: #e0e7ff; cursor: grabbing; }
+
+.sp-icon {
+  font-size: 24px;
+  color: #374151;
+  line-height: 1;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.sp-label {
+  font-size: 10px;
+  color: #6b7280;
+  text-align: center;
+  line-height: 1.2;
+  word-break: break-word;
+  max-width: 56px;
+}
+
+/* Individual item cursor — pointer on hover so it's clear items are clickable */
+.sp-item { cursor: pointer; }
+
+/* Active (pending placement) state */
+.sp-item.active {
+  background: #e0e7ff;
+  outline: 2px solid #6366f1;
+  outline-offset: -2px;
+}
+.sp-item.active .sp-icon,
+.sp-item.active .sp-label { color: #4338ca; }
+
+
+/* Inline SVG icon sizing */
+.sp-icon-svg { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; }
+.sp-icon-svg svg { width: 30px; height: 30px; }

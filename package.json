@@ -1,0 +1,17 @@
+{
+  "name": "bpmn-js-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host localhost --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host localhost --port 4173"
+  },
+  "dependencies": {
+    "bpmn-js": "^17.11.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}

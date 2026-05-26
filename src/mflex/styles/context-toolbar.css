@@ -1,0 +1,307 @@
+/* ─── MFlex Context Toolbar ─────────────────────────────────── */
+
+#mflex-toolbar {
+  position: fixed;
+  z-index: 9000;
+  pointer-events: all;
+}
+
+.mflex-tb-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 5px 8px;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.12),
+    0 1px 4px  rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  user-select: none;
+}
+
+/* ─── Separators ──────────────────────────────────────────────── */
+
+.mflex-sep {
+  width: 1px;
+  height: 20px;
+  background: #e2e8f0;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ─── Type label ─────────────────────────────────────────────── */
+
+.mflex-type-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  padding: 0 4px;
+  min-width: 60px;
+}
+
+/* ─── Generic icon button ────────────────────────────────────── */
+
+.mflex-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #374151;
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1;
+  min-width: 28px;
+  height: 28px;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.mflex-icon-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.mflex-icon-btn.active {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #1d4ed8;
+}
+
+/* ─── Swatch button (color pickers) ──────────────────────────── */
+
+.mflex-swatch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 4px 6px;
+  height: 28px;
+  color: #374151;
+  font-size: 11px;
+  font-family: inherit;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.mflex-swatch-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.mflex-chevron {
+  font-size: 9px;
+  color: #94a3b8;
+  line-height: 1;
+}
+
+/* ─── Popover ─────────────────────────────────────────────────── */
+
+.mflex-group {
+  position: relative;
+}
+
+.mflex-popover {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  z-index: 9100;
+  min-width: 180px;
+}
+
+.mflex-popover.open {
+  display: block;
+}
+
+/* ─── Swatch grid ─────────────────────────────────────────────── */
+
+.mflex-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 24px);
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.mflex-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.mflex-swatch:hover {
+  transform: scale(1.2);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+/* ─── Hex input ───────────────────────────────────────────────── */
+
+.mflex-hex-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.mflex-hex-hash {
+  color: #94a3b8;
+  font-size: 12px;
+  padding-left: 2px;
+}
+
+.mflex-hex-input {
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: "Courier New", monospace;
+  outline: none;
+  color: #1e293b;
+}
+
+.mflex-hex-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+.mflex-apply-btn {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+
+.mflex-apply-btn:hover { background: #2563eb; }
+
+.mflex-reset-btn {
+  width: 100%;
+  background: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  padding: 4px 0;
+  font-size: 11px;
+  cursor: pointer;
+  color: #ef4444;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+
+.mflex-reset-btn:hover { background: #fef2f2; }
+
+/* ─── Select dropdowns ────────────────────────────────────────── */
+
+.mflex-select {
+  appearance: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #374151;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 6px center;
+  background-size: 8px;
+  cursor: pointer;
+  height: 28px;
+  outline: none;
+  transition: border-color 0.1s;
+}
+
+.mflex-select:focus { border-color: #3b82f6; }
+
+.mflex-font-family { width: 110px; }
+.mflex-font-size   { width: 60px; }
+.mflex-border-width{ width: 56px; }
+
+/* ─── Size popover ─────────────────────────────────────────────── */
+
+.mflex-size-pop {
+  min-width: 160px;
+}
+
+.mflex-dim-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #374151;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.mflex-dim-input {
+  width: 70px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 12px;
+  outline: none;
+  text-align: right;
+}
+
+.mflex-dim-input:focus { border-color: #3b82f6; }
+
+/* ─── Delete button ────────────────────────────────────────────── */
+.mflex-delete-btn { color: #ef4444; }
+.mflex-delete-btn:hover { background: #fef2f2; border-color: #fca5a5; }
+
+/* ─── Canvas right-click context menu ─────────────────────────── */
+#mflex-ctx-menu {
+  position: fixed;
+  z-index: 9500;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+  padding: 4px 0;
+  min-width: 160px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  user-select: none;
+}
+
+.mflex-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+  color: #1f2937;
+  transition: background .1s;
+}
+.mflex-ctx-item:hover { background: #f1f5f9; }
+.mflex-ctx-item svg   { flex-shrink: 0; opacity: .65; }
+.mflex-ctx-sep {
+  height: 1px;
+  background: #f1f5f9;
+  margin: 4px 0;
+}
+.mflex-ctx-kbd {
+  margin-left: auto;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.mflex-ctx-item.danger { color: #ef4444; }

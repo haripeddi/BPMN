@@ -1,0 +1,28 @@
+{
+  "name": "mflex",
+  "uri": "http://mflex/1.0",
+  "prefix": "mflex",
+  "xml": { "tagAlias": "lowerCase" },
+  "types": [
+    {
+      "name": "Style",
+      "superClass": ["Element"],
+      "meta": { "allowedIn": ["*"] },
+      "properties": [
+        { "name": "fontFamily",         "isAttr": true, "type": "String" },
+        { "name": "fontSize",           "isAttr": true, "type": "Integer" },
+        { "name": "textColor",          "isAttr": true, "type": "String" },
+        { "name": "textAlign",          "isAttr": true, "type": "String" },
+        { "name": "textAlignVertical",  "isAttr": true, "type": "String" },
+        { "name": "fillOpacity",        "isAttr": true, "type": "Real" },
+        { "name": "borderColor",        "isAttr": true, "type": "String" },
+        { "name": "borderWidth",        "isAttr": true, "type": "Integer" },
+        { "name": "bold",               "isAttr": true, "type": "Boolean" },
+        { "name": "italic",             "isAttr": true, "type": "Boolean" },
+        { "name": "underline",          "isAttr": true, "type": "Boolean" },
+        { "name": "compact",            "isAttr": true, "type": "Boolean" },
+        { "name": "textDirection",      "isAttr": true, "type": "String" }
+      ]
+    }
+  ]
+}

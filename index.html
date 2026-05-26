@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BPMN Editor (bpmn-js)</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">BPMN Editor</div>
+        <div class="actions">
+          <button id="btn-new" title="Create empty diagram">New</button>
+          <button id="btn-open" title="Open .bpmn file">Open</button>
+          <input type="file" id="file-input" accept=".bpmn,.xml" hidden />
+          <button id="btn-save-bpmn" title="Download as .bpmn">Save BPMN</button>
+          <button id="btn-save-svg" title="Download as .svg">Save SVG</button>
+          <span class="sep"></span>
+          <button id="btn-undo" title="Undo">Undo</button>
+          <button id="btn-redo" title="Redo">Redo</button>
+          <span id="status" class="status"></span>
+        </div>
+      </header>
+      <div class="editor-body">
+        <nav id="shape-panel"></nav>
+        <div id="canvas"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

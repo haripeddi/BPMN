@@ -1,0 +1,128 @@
+@import 'bpmn-js/dist/assets/diagram-js.css';
+@import 'bpmn-js/dist/assets/bpmn-js.css';
+@import 'bpmn-js/dist/assets/bpmn-font/css/bpmn-embedded.css';
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #1f2937;
+  background: #f8fafc;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── Top bar ──────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.brand {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .2px;
+  color: #0f172a;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions button {
+  appearance: none;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #111827;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.actions button:hover { background: #f3f4f6; border-color: #9ca3af; }
+.actions button:active { background: #e5e7eb; }
+
+.actions .sep {
+  width: 1px;
+  height: 22px;
+  background: #e5e7eb;
+  margin: 0 4px;
+}
+
+.status { margin-left: 8px; font-size: 12px; color: #6b7280; min-width: 120px; }
+.status.error { color: #b91c1c; }
+.status.ok    { color: #047857; }
+
+/* ── Editor body (sidebar + canvas) ─────────────────── */
+.editor-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#shape-panel {
+  width: 210px;
+  flex-shrink: 0;
+  background: #ffffff;
+  border-right: 1px solid #e5e7eb;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 5;
+}
+
+#canvas {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Hide bpmn-js default palette (replaced by #shape-panel) ── */
+.djs-palette { display: none !important; }
+
+/* ── Clean Miro-style selection (no dashed blue ghost box) ───── */
+
+/* Remove the dashed blue outline that bpmn-js draws around selected shapes */
+.djs-element.selected .djs-outline {
+  visibility: hidden !important;
+}
+
+/* Replace with a thin solid indigo border so selection is still clear */
+.djs-element.selected > .djs-visual > :first-child {
+  outline: none;
+}
+/* Use the hit area to show a subtle selection tint instead */
+.djs-element.selected .djs-hit-all {
+  stroke: #6366f1 !important;
+  stroke-width: 1.5px !important;
+  fill: transparent !important;
+  visibility: visible !important;
+}
+
+/* Multi-select lasso box */
+.djs-selection-box {
+  fill: rgba(99,102,241,.05) !important;
+  stroke: #6366f1 !important;
+  stroke-width: 1px !important;
+  stroke-dasharray: 4 3 !important;
+}
+
+/* Remove bpmn-js native resize handles (we use our own) */
+.djs-resizer { display: none !important; }
