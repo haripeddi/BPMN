@@ -376,15 +376,29 @@ class MflexResizeHandles {
 
   /**
    * Creates a new shape of the same type as sourceElement, positioned in
-   * the given side direction, and connects them with a sequence flow.
+   * the given side direction, and connects them with an arrow.
+   *
+   * Connection strategy (in priority order):
+   *  1. modeling.connect(source, target)   — lets bpmn-js pick the right type
+   *  2. explicit bpmn:SequenceFlow          — for Tasks / Events / Gateways
+   *  3. explicit bpmn:Association           — for TextAnnotations / Artifacts
    */
   _createConnected(sourceElement, side) {
     const { x, y, width, height } = sourceElement;
 
-    // Center of the new element
+    // Center of the new element in diagram coordinates
     const cx = x + width  / 2 + side.dx * (width  + CONNECT_GAP);
     const cy = y + height / 2 + side.dy * (height + CONNECT_GAP);
 
+    // Walk up from Lane to find the real process/subprocess container
+    // (SequenceFlows must live in the process, not in a Lane)
+    let connParent = sourceElement.parent;
+    while (connParent && connParent.type === 'bpmn:Lane') {
+      connParent = connParent.parent;
+    }
+    if (!connParent) connParent = sourceElement.parent;
+
+    let shape = null;
     try {
       const newShapeEl = this._elementFactory.createShape({
         type:   sourceElement.type,
@@ -398,15 +412,49 @@ class MflexResizeHandles {
         newShapeEl.businessObject.__mflexShapeType = srcShapeType;
       }
 
-      const shape = this._modeling.createShape(
+      shape = this._modeling.createShape(
         newShapeEl,
         { x: cx, y: cy },
         sourceElement.parent
       );
-
-      this._modeling.connect(sourceElement, shape);
     } catch (err) {
-      console.warn('[mflex] createConnected:', err);
+      console.warn('[mflex] createShape failed:', err);
+      return;
+    }
+
+    // ── Connect the two shapes ──────────────────────────────────────────────
+    let connected = false;
+
+    // Attempt 1: let bpmn-js pick the connection type via rules
+    try {
+      const conn = this._modeling.connect(sourceElement, shape);
+      connected = !!conn;
+    } catch (_) {}
+
+    // Attempt 2: explicit SequenceFlow (standard flow elements)
+    if (!connected) {
+      try {
+        this._modeling.createConnection(
+          sourceElement, shape,
+          { type: 'bpmn:SequenceFlow' },
+          connParent
+        );
+        connected = true;
+      } catch (_) {}
+    }
+
+    // Attempt 3: explicit Association (TextAnnotations and artifacts)
+    if (!connected) {
+      try {
+        this._modeling.createConnection(
+          sourceElement, shape,
+          { type: 'bpmn:Association' },
+          connParent
+        );
+        connected = true;
+      } catch (err) {
+        console.warn('[mflex] Could not create connection:', err);
+      }
     }
   }
 }
