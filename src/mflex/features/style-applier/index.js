@@ -55,6 +55,13 @@ export default class StyleApplier {
         setTimeout(() => this._applyToSvg(element), 30);
       }
 
+      // Re-apply custom shape geometry even if no other styles are stored
+      const boST = element.businessObject && element.businessObject.__mflexShapeType;
+      if (boST && !this._styles.has(element.id)) {
+        const cur = this._styles.get(element.id) || {};
+        this._styles.set(element.id, { ...cur, shapeType: boST });
+      }
+
       // When a Participant/Lane LABEL changes, re-apply text direction
       if (element.type === 'label' && element.labelTarget) {
         const parentId = element.labelTarget.id;
@@ -190,12 +197,21 @@ export default class StyleApplier {
         const bo   = element.businessObject;
         const fill = bo && bo.__mflexStickyFill;
         if (fill) {
-          delete bo.__mflexStickyFill;
+          // Keep on bo so future color changes can reference it; StyleApplier is source of truth
           const cur = this._styles.get(element.id) || {};
           this._styles.set(element.id, { ...cur, stickyFill: fill });
         }
         // Always render clean (no bracket; fill if set)
         setTimeout(() => this._applyAnnotationStyle(element), 30);
+      }
+
+      // Pick up custom shape type (parallelogram, hexagon, triangle, rounded-rect)
+      const boST = element.businessObject && element.businessObject.__mflexShapeType;
+      if (boST) {
+        const cur = this._styles.get(element.id) || {};
+        this._styles.set(element.id, { ...cur, shapeType: boST });
+        // Keep __mflexShapeType on bo so _createConnected can propagate it
+        setTimeout(() => this._applyCustomShapeToElement(element), 30);
       }
     });
   }
@@ -205,6 +221,8 @@ export default class StyleApplier {
   /**
    * Apply fill and/or stroke using the native BPMN in Color API.
    * bpmn-js persists these in DI XML automatically.
+   * For TextAnnotations (sticky notes) also updates the stickyFill style so
+   * the custom background renderer picks up the new color immediately.
    */
   setColor(elements, { fill, stroke }) {
     const modeling = this._modeler.get('modeling');
@@ -213,6 +231,28 @@ export default class StyleApplier {
     if (stroke !== undefined) colors.stroke = stroke;
     if (Object.keys(colors).length) {
       modeling.setColor(elements, colors);
+    }
+
+    // Sticky notes use stickyFill (not DI fill) for their background — keep in sync
+    if (fill !== undefined) {
+      elements.forEach(el => {
+        if (!is(el, 'bpmn:TextAnnotation')) return;
+        const cur = this._styles.get(el.id) || {};
+        const updated = { ...cur };
+        if (fill === null) {
+          delete updated.stickyFill;
+        } else {
+          updated.stickyFill = fill;
+          // Persist on businessObject so _createConnected can copy it
+          if (el.businessObject) el.businessObject.__mflexStickyFill = fill;
+        }
+        if (Object.keys(updated).length) {
+          this._styles.set(el.id, updated);
+        } else {
+          this._styles.delete(el.id);
+        }
+        setTimeout(() => this._applyAnnotationStyle(el), 30);
+      });
     }
   }
 
@@ -441,6 +481,127 @@ export default class StyleApplier {
     if (is(element, 'bpmn:TextAnnotation') && style.stickyFill) {
       this._applyAnnotationStyle(element, style.stickyFill, gfx);
     }
+
+    // ── Custom shape geometry (parallelogram, hexagon, etc.) ──────────────
+    if (style.shapeType) {
+      this._applyCustomShape(element, style.shapeType, gfx);
+    }
+
+    // ── Connection line style (dashed / dotted / solid) ───────────────────
+    if (element.waypoints && (style.lineStyle || style.borderWidth || style.borderColor)) {
+      this._applyConnectionStyle(element, style, gfx);
+    }
+  }
+
+  /** Helper: apply custom shape to element using canvas.getGraphics */
+  _applyCustomShapeToElement(element) {
+    const canvas = this._modeler.get('canvas');
+    let gfx;
+    try { gfx = canvas.getGraphics(element); } catch (_) { return; }
+    if (!gfx) return;
+    const style = this._styles.get(element.id);
+    if (!style || !style.shapeType) return;
+    this._applyCustomShape(element, style.shapeType, gfx);
+  }
+
+  /**
+   * Replace the default bpmn-js shape (rect / diamond) with a custom polygon
+   * that matches the intended shape type stored in the element's style.
+   */
+  _applyCustomShape(element, shapeType, gfx) {
+    const { width, height } = element;
+    const container = (gfx && gfx.node) || gfx;
+    if (!container) return;
+    const visual = container.querySelector('.djs-visual');
+    if (!visual) return;
+
+    const firstChild = visual.firstElementChild;
+    if (!firstChild || firstChild.tagName.toLowerCase() === 'text') return;
+
+    const fill   = firstChild.getAttribute('fill')         || '#ffffff';
+    const stroke = firstChild.getAttribute('stroke')       || '#374151';
+    const sw     = firstChild.getAttribute('stroke-width') || '2';
+    const NS     = 'http://www.w3.org/2000/svg';
+
+    let newShape = null;
+
+    switch (shapeType) {
+      case 'parallelogram': {
+        const skew = Math.min(20, width * 0.16);
+        newShape = document.createElementNS(NS, 'polygon');
+        newShape.setAttribute('points', `${skew},0 ${width},0 ${width - skew},${height} 0,${height}`);
+        break;
+      }
+      case 'hexagon': {
+        const indent = Math.min(width * 0.22, 22);
+        newShape = document.createElementNS(NS, 'polygon');
+        newShape.setAttribute('points',
+          `${indent},0 ${width - indent},0 ${width},${height / 2} ` +
+          `${width - indent},${height} ${indent},${height} 0,${height / 2}`
+        );
+        break;
+      }
+      case 'triangle': {
+        newShape = document.createElementNS(NS, 'polygon');
+        newShape.setAttribute('points', `${width / 2},0 ${width},${height} 0,${height}`);
+        break;
+      }
+      case 'rounded-rect': {
+        const rx = Math.min(height / 2, 14);
+        if (firstChild.tagName.toLowerCase() === 'rect') {
+          firstChild.setAttribute('rx', rx);
+          firstChild.setAttribute('ry', rx);
+          return;
+        }
+        newShape = document.createElementNS(NS, 'rect');
+        newShape.setAttribute('x', '0');
+        newShape.setAttribute('y', '0');
+        newShape.setAttribute('width', width);
+        newShape.setAttribute('height', height);
+        newShape.setAttribute('rx', rx);
+        newShape.setAttribute('ry', rx);
+        break;
+      }
+      default:
+        return;
+    }
+
+    if (newShape) {
+      newShape.setAttribute('fill', fill);
+      newShape.setAttribute('stroke', stroke);
+      newShape.setAttribute('stroke-width', sw);
+      firstChild.replaceWith(newShape);
+    }
+  }
+
+  /**
+   * Apply line style (solid / dashed / dotted) and stroke overrides to a
+   * connection element's path elements.
+   */
+  _applyConnectionStyle(element, style, gfx) {
+    const container = (gfx && gfx.node) || gfx;
+    if (!container) return;
+    const paths = container.querySelectorAll('.djs-visual path, .djs-visual polyline');
+    paths.forEach(path => {
+      if (style.lineStyle === 'dashed') {
+        path.style.strokeDasharray = '8 4';
+        path.setAttribute('stroke-dasharray', '8 4');
+      } else if (style.lineStyle === 'dotted') {
+        path.style.strokeDasharray = '2 4';
+        path.setAttribute('stroke-dasharray', '2 4');
+      } else {
+        path.style.strokeDasharray = '';
+        path.removeAttribute('stroke-dasharray');
+      }
+      if (style.borderWidth) {
+        path.style.strokeWidth = `${style.borderWidth}px`;
+        path.setAttribute('stroke-width', style.borderWidth);
+      }
+      if (style.borderColor) {
+        path.style.stroke = style.borderColor;
+        path.setAttribute('stroke', style.borderColor);
+      }
+    });
   }
 
   /**

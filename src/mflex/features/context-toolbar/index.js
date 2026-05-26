@@ -40,7 +40,7 @@ function getVisibleGroups(elements) {
     return new Set(['textColor','font','fontSize','emphasis','align']);
   }
   if (el.waypoints) {
-    return new Set(['border', 'borderWidth']);
+    return new Set(['border', 'borderWidth', 'lineStyle']);
   }
   if (is(el, 'bpmn:Participant') || is(el, 'bpmn:Lane')) {
     return new Set(['fill', 'border', 'borderWidth', 'addLane', 'textDir']);
@@ -79,6 +79,7 @@ const GROUP_MAP = {
   align:       'mflex-group-align',
   border:      'mflex-group-border',
   borderWidth: 'mflex-group-border-width',
+  lineStyle:   'mflex-group-line-style',
   addLane:     'mflex-group-addlane',
   collapse:    'mflex-group-collapse',
   textDir:     'mflex-group-text-dir',
@@ -258,6 +259,21 @@ export default class ContextToolbar {
         </button>
       </div>
 
+      <!-- Line style (connections only) -->
+      <div class="mflex-group" id="mflex-group-line-style" style="display:none">
+        <button class="mflex-icon-btn mflex-toggle mflex-line-style active" data-style="solid" data-tooltip="Solid line">
+          <svg width="20" height="14" viewBox="0 0 20 14"><line x1="1" y1="7" x2="19" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="mflex-icon-btn mflex-toggle mflex-line-style" data-style="dashed" data-tooltip="Dashed line">
+          <svg width="20" height="14" viewBox="0 0 20 14"><line x1="1" y1="7" x2="19" y2="7" stroke="currentColor" stroke-width="2" stroke-dasharray="5 3" stroke-linecap="round"/></svg>
+        </button>
+        <button class="mflex-icon-btn mflex-toggle mflex-line-style" data-style="dotted" data-tooltip="Dotted line">
+          <svg width="20" height="14" viewBox="0 0 20 14"><line x1="1" y1="7" x2="19" y2="7" stroke="currentColor" stroke-width="2" stroke-dasharray="2 4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div class="mflex-sep"></div>
+
       <!-- Zoom to fit -->
       <div class="mflex-group">
         <button class="mflex-icon-btn" id="mflex-zoomfit-btn" data-tooltip="Zoom canvas to fit selection">
@@ -417,6 +433,15 @@ export default class ContextToolbar {
       }
     });
 
+    // Line style (solid / dashed / dotted)
+    tb.querySelectorAll('.mflex-line-style').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._applier.setStyle(this._selection, { lineStyle: btn.dataset.style });
+        tb.querySelectorAll('.mflex-line-style').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
     // Zoom to fit
     tb.querySelector('#mflex-zoomfit-btn').addEventListener('click', () => {
       if (!this._selection.length) return;
@@ -506,6 +531,12 @@ export default class ContextToolbar {
 
     // Border width
     if (style.borderWidth) tb.querySelector('#mflex-border-width').value = style.borderWidth;
+
+    // Line style state (connections)
+    const lineStyle = style.lineStyle || 'solid';
+    tb.querySelectorAll('.mflex-line-style').forEach(b =>
+      b.classList.toggle('active', b.dataset.style === lineStyle)
+    );
 
     // Text direction button state
     const textDir = style.textDirection || 'horizontal';

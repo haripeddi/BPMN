@@ -304,8 +304,9 @@ class MflexResizeHandles {
   // ── Ghost preview ─────────────────────────────────────────────────────────
 
   /**
-   * Shows a translucent ghost div at the position where a new element
-   * would be created if the user clicks this connection dot.
+   * Shows a ghost that visually mirrors the source element at the position
+   * where a new connected element would be created. The element's actual
+   * SVG visual is cloned so the ghost looks identical to the source shape.
    */
   _showGhost(element, side) {
     this._clearGhost();
@@ -329,7 +330,27 @@ class MflexResizeHandles {
       `width:${Math.max(width * sx, 30)}px`,
       `height:${Math.max(height * sy, 24)}px`,
       'pointer-events:all',
+      'overflow:hidden',
     ].join(';');
+
+    // Clone the source element's rendered SVG so the ghost looks like the actual shape
+    try {
+      const gfxNode  = this._canvas.getGraphics(element);
+      const container = (gfxNode && gfxNode.node) || gfxNode;
+      const visualGrp = container && container.querySelector('.djs-visual');
+      if (visualGrp) {
+        const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svgEl.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        svgEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;opacity:0.5;pointer-events:none;';
+
+        const cloned = visualGrp.cloneNode(true);
+        // Remove text labels — ghost shows shape silhouette only
+        cloned.querySelectorAll('text, tspan').forEach(n => n.remove());
+        svgEl.appendChild(cloned);
+        ghost.appendChild(svgEl);
+      }
+    } catch (_) { /* fallback: plain ghost outline div */ }
 
     // Clicking the ghost also creates the connected element
     ghost.addEventListener('click', (e) => {
@@ -370,6 +391,12 @@ class MflexResizeHandles {
         width:  width,
         height: height,
       });
+
+      // Propagate custom shape type (parallelogram, hexagon, …) to the new element
+      const srcShapeType = sourceElement.businessObject && sourceElement.businessObject.__mflexShapeType;
+      if (srcShapeType && newShapeEl.businessObject) {
+        newShapeEl.businessObject.__mflexShapeType = srcShapeType;
+      }
 
       const shape = this._modeling.createShape(
         newShapeEl,

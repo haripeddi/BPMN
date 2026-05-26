@@ -57,14 +57,14 @@ const SECTIONS = [
     open: true,
     items: [
       { label: 'Rectangle',      iconSvg: I.rect,      create: ef => ef.createShape({ type: 'bpmn:Task', width: 120, height: 60 }) },
-      { label: 'Rounded Rect',   iconSvg: I.roundRect, create: ef => ef.createShape({ type: 'bpmn:Task', width: 120, height: 60 }) },
+      { label: 'Rounded Rect',   iconSvg: I.roundRect, shapeType: 'rounded-rect',   create: ef => ef.createShape({ type: 'bpmn:Task', width: 120, height: 60 }) },
       { label: 'Circle',         iconSvg: I.circle,    create: ef => ef.createShape({ type: 'bpmn:StartEvent', width: 60, height: 60 }) },
       { label: 'Oval / Ellipse', iconSvg: I.oval,      create: ef => ef.createShape({ type: 'bpmn:StartEvent', width: 100, height: 60 }) },
       { label: 'Diamond',        iconSvg: I.diamond,   create: ef => ef.createShape({ type: 'bpmn:ExclusiveGateway', width: 60, height: 60 }) },
-      { label: 'Triangle',       iconSvg: I.triangle,  create: ef => ef.createShape({ type: 'bpmn:ExclusiveGateway', width: 60, height: 60 }) },
-      { label: 'Parallelogram',  iconSvg: I.parallelogram, create: ef => ef.createShape({ type: 'bpmn:Task', width: 120, height: 60 }) },
+      { label: 'Triangle',       iconSvg: I.triangle,  shapeType: 'triangle',       create: ef => ef.createShape({ type: 'bpmn:Task', width: 80, height: 70 }) },
+      { label: 'Parallelogram',  iconSvg: I.parallelogram, shapeType: 'parallelogram', create: ef => ef.createShape({ type: 'bpmn:Task', width: 120, height: 60 }) },
       { label: 'Cylinder / DB',  iconSvg: I.cylinder,  create: ef => ef.createShape({ type: 'bpmn:DataStoreReference' }) },
-      { label: 'Hexagon',        iconSvg: I.hexagon,   create: ef => ef.createShape({ type: 'bpmn:Task', width: 100, height: 80 }) },
+      { label: 'Hexagon',        iconSvg: I.hexagon,   shapeType: 'hexagon',        create: ef => ef.createShape({ type: 'bpmn:Task', width: 110, height: 80 }) },
       { label: 'Text Box',       iconSvg: I.textBox,   create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 140, height: 60 }) },
       { label: 'Note',           iconSvg: I.note,      create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 120, height: 80 }) },
       { label: 'Arrow',          iconSvg: I.arrow,     create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 100, height: 40 }) },
@@ -252,6 +252,12 @@ export default class ShapePanel {
     const fill = item.fill || null;
     if (fill && shape.businessObject) {
       shape.businessObject.__mflexStickyFill = fill;
+    }
+
+    // Tag custom shape type (parallelogram, hexagon, triangle, rounded-rect)
+    const shapeType = item.shapeType || null;
+    if (shapeType && shape.businessObject) {
+      shape.businessObject.__mflexShapeType = shapeType;
     }
 
     // create.start(event, shape) — same call bpmn-js palette uses for 'click'

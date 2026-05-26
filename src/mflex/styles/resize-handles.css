@@ -41,29 +41,18 @@
 /* ─── Ghost element preview ───────────────────────────────────────────────── */
 
 .mflex-connect-ghost {
-  background: rgba(59, 130, 246, .08);
+  background: rgba(59, 130, 246, .05);
   border: 2px dashed #3b82f6;
   border-radius: 6px;
   cursor: pointer;
   z-index: 7400;
   transition: background .15s ease;
   position: fixed;
+  overflow: hidden;
 }
 
-.mflex-connect-ghost::after {
-  content: '+';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 18px;
-  font-weight: 300;
-  color: #3b82f6;
-  opacity: 0.65;
-  pointer-events: none;
-  line-height: 1;
-}
+/* Ghost shows actual SVG shape clone — no + symbol overlay */
 
 .mflex-connect-ghost:hover {
-  background: rgba(59, 130, 246, .18);
+  background: rgba(59, 130, 246, .12);
 }
