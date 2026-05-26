@@ -43,12 +43,12 @@ const SECTIONS = [
     label: 'Sticky Notes',
     open: true,
     items: [
-      { label: 'Yellow',  fill: '#fef9c3', iconSvg: stickyIcon('#fef9c3','#ca8a04'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 120 }) },
-      { label: 'Green',   fill: '#dcfce7', iconSvg: stickyIcon('#dcfce7','#16a34a'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 120 }) },
-      { label: 'Blue',    fill: '#dbeafe', iconSvg: stickyIcon('#dbeafe','#2563eb'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 120 }) },
-      { label: 'Pink',    fill: '#fce7f3', iconSvg: stickyIcon('#fce7f3','#db2777'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 120 }) },
-      { label: 'Purple',  fill: '#f3e8ff', iconSvg: stickyIcon('#f3e8ff','#9333ea'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 120 }) },
-      { label: 'Orange',  fill: '#ffedd5', iconSvg: stickyIcon('#ffedd5','#ea580c'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 120 }) },
+      { label: 'Yellow',  fill: '#fef9c3', iconSvg: stickyIcon('#fef9c3','#ca8a04'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 80 }) },
+      { label: 'Green',   fill: '#dcfce7', iconSvg: stickyIcon('#dcfce7','#16a34a'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 80 }) },
+      { label: 'Blue',    fill: '#dbeafe', iconSvg: stickyIcon('#dbeafe','#2563eb'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 80 }) },
+      { label: 'Pink',    fill: '#fce7f3', iconSvg: stickyIcon('#fce7f3','#db2777'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 80 }) },
+      { label: 'Purple',  fill: '#f3e8ff', iconSvg: stickyIcon('#f3e8ff','#9333ea'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 80 }) },
+      { label: 'Orange',  fill: '#ffedd5', iconSvg: stickyIcon('#ffedd5','#ea580c'), create: ef => ef.createShape({ type: 'bpmn:TextAnnotation', width: 160, height: 80 }) },
     ]
   },
   {

@@ -23,6 +23,11 @@ export default class StyleApplier {
     this._modeler = modeler;
     this._styles  = new Map(); // elementId → { fontFamily, fontSize, textColor, … }
 
+    // Persistent <style> tag for font/text rules (CSS !important beats any bpmn-js re-render)
+    this._fontStyleEl = document.createElement('style');
+    this._fontStyleEl.id = 'mflex-font-styles';
+    document.head.appendChild(this._fontStyleEl);
+
     this._bindEvents();
   }
 
@@ -31,7 +36,18 @@ export default class StyleApplier {
   _bindEvents() {
     const eventBus = this._modeler.get('eventBus');
 
-    // Re-apply after every re-render (shape move, resize, property change, etc.)
+    // ── Hook into the rendering pipeline (LOW_PRIORITY = fires AFTER bpmn-js renders) ──
+    // This is the most reliable way to apply text/font styles — they are applied
+    // directly after every bpmn-js render pass, so they can never be overwritten.
+    const LOW_PRIORITY = 500;
+    eventBus.on('render.shape', LOW_PRIORITY, (event) => {
+      const { element, gfx } = event.context;
+      const style = this._styles.get(element.id);
+      if (!style) return;
+      this._applyTextStylesToGfx(style, gfx);
+    });
+
+    // Re-apply after every element change (move, resize, property update, etc.)
     eventBus.on('element.changed', ({ element }) => {
       if (!element) return;
 
@@ -39,7 +55,7 @@ export default class StyleApplier {
         setTimeout(() => this._applyToSvg(element), 30);
       }
 
-      // When a Participant/Lane LABEL changes (e.g. after text edit), re-apply text direction
+      // When a Participant/Lane LABEL changes, re-apply text direction
       if (element.type === 'label' && element.labelTarget) {
         const parentId = element.labelTarget.id;
         if (this._styles.has(parentId)) {
@@ -47,7 +63,7 @@ export default class StyleApplier {
         }
       }
 
-      // Always clean up TextAnnotation rendering (remove bracket, apply stickyFill)
+      // Always clean up TextAnnotation rendering (bracket removal + fill)
       if (is(element, 'bpmn:TextAnnotation')) {
         setTimeout(() => this._applyAnnotationStyle(element), 30);
       }
@@ -57,6 +73,92 @@ export default class StyleApplier {
     eventBus.on('import.done', () => {
       this._loadFromModdle();
       requestAnimationFrame(() => this._reapplyAll());
+    });
+
+    // ── Sticky note editing: full-coverage, correct colors, Enter = newline ──
+    this._annotationEditing = false;
+
+    eventBus.on('directEditing.activate', ({ element }) => {
+      this._annotationEditing = is(element, 'bpmn:TextAnnotation');
+      if (!this._annotationEditing) return;
+
+      const fill = (this._styles.get(element.id) || {}).stickyFill || null;
+
+      // TextBox creates the DOM synchronously before firing this event
+      setTimeout(() => {
+        const parent  = document.querySelector('.djs-direct-editing-parent');
+        if (!parent) return;
+        const content = parent.querySelector('.djs-direct-editing-content');
+
+        // ① Cover the full note area with correct background
+        if (fill) {
+          parent.style.backgroundColor = fill;
+          parent.style.borderRadius    = '5px';
+          parent.style.border          = 'none';
+          parent.style.boxShadow       = `inset 0 0 0 2px rgba(0,0,0,.12)`;
+        } else {
+          parent.style.backgroundColor = '#ffffff';
+          parent.style.border          = '1px solid #9ca3af';
+          parent.style.borderRadius    = '4px';
+        }
+
+        // ② Make the content div fill the full parent height so every
+        //    click on the note body positions the cursor correctly
+        if (content) {
+          content.style.height      = '100%';
+          content.style.minHeight   = parent.offsetHeight + 'px';
+          content.style.boxSizing   = 'border-box';
+          content.style.cursor      = 'text';
+          content.style.whiteSpace  = 'pre-wrap';
+          content.style.overflowWrap = 'break-word';
+          // Left-align text (override any inherited center)
+          content.style.textAlign   = 'left';
+        }
+      }, 0);
+    });
+
+    eventBus.on(['directEditing.complete', 'directEditing.cancel', 'directEditing.deactivate'], () => {
+      this._annotationEditing = false;
+    });
+
+    // ③ Enter key → insert newline (not complete) when editing sticky notes.
+    //    Use document capture phase so our handler fires BEFORE diagram-js's
+    //    own keydown handler (which is in bubble phase on the content element).
+    document.addEventListener('keydown', (e) => {
+      if (!this._annotationEditing) return;
+      if (e.key !== 'Enter' || e.shiftKey) return;
+
+      // Stop the event from reaching the bpmn-js keyHandler on the content element
+      e.stopPropagation();
+      e.preventDefault();
+
+      // Insert a line break at the current cursor position
+      const content = document.querySelector('.djs-direct-editing-content');
+      if (!content) return;
+      content.focus();
+      // Use execCommand (supported by all Chromium/Firefox for contenteditable)
+      if (!document.execCommand('insertLineBreak')) {
+        // Fallback: insert a newline text node
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          const br = document.createElement('br');
+          range.insertNode(br);
+          const after = document.createTextNode('\u200B');
+          br.after(after);
+          range.setStartAfter(after);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    }, true); // ← capture phase
+
+    // After text editing completes on a TextAnnotation, auto-resize to fit content
+    eventBus.on('directEditing.complete', ({ element }) => {
+      if (!is(element, 'bpmn:TextAnnotation')) return;
+      setTimeout(() => this._autoResizeAnnotation(element), 40);
     });
 
     // When a new shape lands on canvas (from palette / paste / import)
@@ -116,10 +218,13 @@ export default class StyleApplier {
 
   /**
    * Apply typography / border-width styles.
-   * Stored in memory → painted to SVG immediately.
+   * Stored in memory → painted to SVG immediately via both CSS injection (reliable
+   * across bpmn-js re-renders) and direct SVG attributes (for immediate feedback).
    * Pass null for a key to remove that style.
    */
   setStyle(elements, attrs) {
+    const eventBus = this._modeler.get('eventBus');
+
     elements.forEach(element => {
       if (!element || !element.id) return;
 
@@ -140,8 +245,84 @@ export default class StyleApplier {
         this._styles.set(element.id, updated);
       }
 
+      // Immediate direct patch (fastest feedback)
       this._applyToSvg(element);
+
+      // Trigger a bpmn-js re-render so our render.shape hook applies styles
+      // during the render pipeline — this survives any future re-renders too
+      eventBus.fire('element.changed', { element });
     });
+
+    // CSS stylesheet backup (persists across re-renders without needing element.changed)
+    this._rebuildFontStyles();
+  }
+
+  /**
+   * Apply text/font styles directly to SVG text elements inside a gfx group.
+   * Called both from _applyToSvg (post-render) and from the render.shape hook.
+   */
+  _applyTextStylesToGfx(style, gfx) {
+    if (!gfx) return;
+    const textEls = gfx.querySelectorAll('text, tspan');
+    textEls.forEach(t => {
+      if (style.textColor)  { t.style.fill = style.textColor; t.setAttribute('fill', style.textColor); }
+      if (style.fontFamily) { t.style.fontFamily = style.fontFamily; t.setAttribute('font-family', style.fontFamily); }
+      if (style.fontSize)   { t.style.fontSize = `${style.fontSize}px`; t.setAttribute('font-size', style.fontSize); }
+      if (style.bold      !== undefined) t.style.fontWeight    = style.bold      ? 'bold'      : 'normal';
+      if (style.italic    !== undefined) t.style.fontStyle     = style.italic    ? 'italic'    : 'normal';
+      if (style.underline !== undefined) t.style.textDecoration = style.underline ? 'underline' : 'none';
+    });
+  }
+
+  /**
+   * Inject a persistent <style> tag with per-element text rules using !important.
+   * This ensures font/bold/italic/color always apply, even after bpmn-js re-renders.
+   */
+  _rebuildFontStyles() {
+    let css = '';
+    this._styles.forEach((style, id) => {
+      let rules = '';
+      if (style.fontFamily) rules += `font-family: "${style.fontFamily}" !important; `;
+      if (style.fontSize)   rules += `font-size: ${style.fontSize}px !important; `;
+      if (style.textColor)  rules += `fill: ${style.textColor} !important; `;
+      if (style.bold      !== undefined) rules += `font-weight: ${style.bold      ? 'bold'      : 'normal'   } !important; `;
+      if (style.italic    !== undefined) rules += `font-style:  ${style.italic    ? 'italic'    : 'normal'   } !important; `;
+      if (style.underline !== undefined) rules += `text-decoration: ${style.underline ? 'underline' : 'none'} !important; `;
+      if (!rules) return;
+      const sel = `.djs-element[data-element-id="${id}"] .djs-visual text,` +
+                  `.djs-element[data-element-id="${id}"] .djs-visual tspan`;
+      css += `${sel} { ${rules} }\n`;
+    });
+    this._fontStyleEl.textContent = css;
+  }
+
+  /**
+   * After direct-editing completes on a TextAnnotation, resize the shape to fit
+   * the actual rendered text height. Base minimum is 80px.
+   */
+  _autoResizeAnnotation(element) {
+    const canvas   = this._modeler.get('canvas');
+    const modeling = this._modeler.get('modeling');
+    let gfx;
+    try { gfx = canvas.getGraphics(element); } catch (_) { return; }
+    if (!gfx) return;
+
+    const textEl = gfx.querySelector('.djs-visual text');
+    if (!textEl) return;
+
+    try {
+      const bbox        = textEl.getBBox();
+      const padding     = 28;                           // top + bottom padding
+      const minHeight   = 80;
+      const neededH     = Math.max(minHeight, Math.ceil(bbox.height) + padding);
+
+      if (neededH > element.height + 4) {
+        modeling.resizeShape(element, {
+          x: element.x, y: element.y,
+          width: element.width, height: neededH
+        });
+      }
+    } catch (_) {}
   }
 
   /** Read the mflex style for an element */
@@ -240,30 +421,7 @@ export default class StyleApplier {
     if (!gfx) return;
 
     // ── Text / label styling ─────────────────────────────────────────────
-    const textEls = gfx.querySelectorAll('text, tspan');
-    textEls.forEach(t => {
-      if (style.textColor) {
-        t.style.fill = style.textColor;
-        t.setAttribute('fill', style.textColor);
-      }
-      if (style.fontFamily) {
-        t.style.fontFamily = style.fontFamily;
-        t.setAttribute('font-family', style.fontFamily);
-      }
-      if (style.fontSize) {
-        t.style.fontSize = `${style.fontSize}px`;
-        t.setAttribute('font-size', style.fontSize);
-      }
-      if (style.bold !== undefined) {
-        t.style.fontWeight = style.bold ? 'bold' : 'normal';
-      }
-      if (style.italic !== undefined) {
-        t.style.fontStyle = style.italic ? 'italic' : 'normal';
-      }
-      if (style.underline !== undefined) {
-        t.style.textDecoration = style.underline ? 'underline' : 'none';
-      }
-    });
+    this._applyTextStylesToGfx(style, gfx);
 
     // ── Border / stroke width ────────────────────────────────────────────
     if (style.borderWidth) {
@@ -399,6 +557,8 @@ export default class StyleApplier {
       const el = elementRegistry.get(id);
       if (el) this._applyToSvg(el);
     });
+    // Rebuild CSS stylesheet so font rules are active for all loaded elements
+    this._rebuildFontStyles();
     // Clean up all TextAnnotation renderings (remove bracket, apply fill if set)
     elementRegistry.forEach(el => {
       if (is(el, 'bpmn:TextAnnotation')) this._applyAnnotationStyle(el);

@@ -43,30 +43,30 @@ function getVisibleGroups(elements) {
     return new Set(['border', 'borderWidth']);
   }
   if (is(el, 'bpmn:Participant') || is(el, 'bpmn:Lane')) {
-    return new Set(['fill', 'border', 'borderWidth', 'size', 'addLane', 'textDir']);
+    return new Set(['fill', 'border', 'borderWidth', 'addLane', 'textDir']);
   }
   if (is(el, 'bpmn:SubProcess') || is(el, 'bpmn:CallActivity')) {
-    return new Set(['fill','textColor','font','fontSize','emphasis','align','border','borderWidth','size','collapse']);
+    return new Set(['fill','textColor','font','fontSize','emphasis','align','border','borderWidth','collapse']);
   }
   if (is(el, 'bpmn:Task')) {
-    return new Set(['fill','textColor','font','fontSize','emphasis','align','border','borderWidth','size']);
+    return new Set(['fill','textColor','font','fontSize','emphasis','align','border','borderWidth']);
   }
   if (is(el, 'bpmn:Event')) {
-    return new Set(['fill','border','borderWidth','size']);
+    return new Set(['fill','border','borderWidth']);
   }
   if (is(el, 'bpmn:Gateway')) {
-    return new Set(['fill','border','borderWidth','size']);
+    return new Set(['fill','border','borderWidth']);
   }
   if (is(el, 'bpmn:TextAnnotation')) {
-    return new Set(['fill','textColor','font','fontSize','emphasis','align','border','borderWidth','size']);
+    return new Set(['fill','textColor','font','fontSize','emphasis','align','border','borderWidth']);
   }
   if (is(el, 'bpmn:DataObjectReference') || is(el, 'bpmn:DataStoreReference')) {
-    return new Set(['fill','border','size']);
+    return new Set(['fill','border']);
   }
   if (is(el, 'bpmn:Group')) {
-    return new Set(['fill','border','borderWidth','size']);
+    return new Set(['fill','border','borderWidth']);
   }
-  return new Set(['fill','textColor','font','fontSize','emphasis','align','border','borderWidth','size']);
+  return new Set(['fill','textColor','font','fontSize','emphasis','align','border','borderWidth']);
 }
 
 // Map group key → DOM id
@@ -79,7 +79,6 @@ const GROUP_MAP = {
   align:       'mflex-group-align',
   border:      'mflex-group-border',
   borderWidth: 'mflex-group-border-width',
-  size:        'mflex-group-size',
   addLane:     'mflex-group-addlane',
   collapse:    'mflex-group-collapse',
   textDir:     'mflex-group-text-dir',
@@ -115,7 +114,7 @@ export default class ContextToolbar {
   _buildHTML() {
     const swatches = (id) =>
       PRESET_COLORS.map(c =>
-        `<button class="mflex-swatch" data-color="${c}" data-target="${id}" style="background:${c}" title="${c}"></button>`
+        `<button class="mflex-swatch" data-color="${c}" data-target="${id}" style="background:${c}" data-tooltip="${c}"></button>`
       ).join('');
 
     const fontOpts = FONTS.map(f => `<option value="${f}">${f}</option>`).join('');
@@ -127,7 +126,7 @@ export default class ContextToolbar {
 
       <!-- Fill color -->
       <div class="mflex-group" id="mflex-group-fill">
-        <button class="mflex-swatch-btn" id="mflex-fill-btn" title="Fill color">
+        <button class="mflex-swatch-btn" id="mflex-fill-btn" data-tooltip="Fill color">
           <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="9" rx="1" fill="currentColor" opacity=".2" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="12" width="12" height="2.5" rx="1" fill="currentColor"/></svg>
           <span class="mflex-chevron">▾</span>
         </button>
@@ -144,7 +143,7 @@ export default class ContextToolbar {
 
       <!-- Text color -->
       <div class="mflex-group" id="mflex-group-text-color">
-        <button class="mflex-swatch-btn" id="mflex-text-color-btn" title="Text color">
+        <button class="mflex-swatch-btn" id="mflex-text-color-btn" data-tooltip="Text color">
           <svg width="16" height="16" viewBox="0 0 16 16"><text x="2" y="13" font-size="13" font-weight="bold" fill="currentColor">A</text><rect x="2" y="13.5" width="8" height="2" rx="1" fill="currentColor"/></svg>
           <span class="mflex-chevron">▾</span>
         </button>
@@ -163,34 +162,34 @@ export default class ContextToolbar {
 
       <!-- Font family -->
       <div class="mflex-group" id="mflex-group-font">
-        <select class="mflex-select mflex-font-family" id="mflex-font-family" title="Font">${fontOpts}</select>
+        <select class="mflex-select mflex-font-family" id="mflex-font-family" data-tooltip="Font family">${fontOpts}</select>
       </div>
 
       <!-- Font size -->
       <div class="mflex-group" id="mflex-group-font-size">
-        <select class="mflex-select mflex-font-size" id="mflex-font-size" title="Size">
+        <select class="mflex-select mflex-font-size" id="mflex-font-size" data-tooltip="Font size">
           ${[8,10,11,12,14,16,18,20,24,28,32,36,40,48].map(s=>`<option value="${s}">${s}</option>`).join('')}
         </select>
       </div>
 
       <!-- Bold / Italic / Underline -->
       <div class="mflex-group" id="mflex-group-emphasis">
-        <button class="mflex-icon-btn mflex-toggle" id="mflex-bold"      title="Bold"><b>B</b></button>
-        <button class="mflex-icon-btn mflex-toggle" id="mflex-italic"    title="Italic"><i>I</i></button>
-        <button class="mflex-icon-btn mflex-toggle" id="mflex-underline" title="Underline"><u>U</u></button>
+        <button class="mflex-icon-btn mflex-toggle" id="mflex-bold"      data-tooltip="Bold (B)"><b>B</b></button>
+        <button class="mflex-icon-btn mflex-toggle" id="mflex-italic"    data-tooltip="Italic (I)"><i>I</i></button>
+        <button class="mflex-icon-btn mflex-toggle" id="mflex-underline" data-tooltip="Underline (U)"><u>U</u></button>
       </div>
 
       <div class="mflex-sep"></div>
 
       <!-- H-align -->
       <div class="mflex-group" id="mflex-group-align">
-        <button class="mflex-icon-btn mflex-toggle mflex-align" data-align="left"   title="Left">
+        <button class="mflex-icon-btn mflex-toggle mflex-align" data-align="left"   data-tooltip="Align left">
           <svg width="16" height="16" viewBox="0 0 16 16"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="12" x2="12" y2="12" stroke="currentColor" stroke-width="1.5"/></svg>
         </button>
-        <button class="mflex-icon-btn mflex-toggle mflex-align" data-align="center" title="Center">
+        <button class="mflex-icon-btn mflex-toggle mflex-align" data-align="center" data-tooltip="Align center">
           <svg width="16" height="16" viewBox="0 0 16 16"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="5" y1="8" x2="11" y2="8" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="12" x2="13" y2="12" stroke="currentColor" stroke-width="1.5"/></svg>
         </button>
-        <button class="mflex-icon-btn mflex-toggle mflex-align" data-align="right"  title="Right">
+        <button class="mflex-icon-btn mflex-toggle mflex-align" data-align="right"  data-tooltip="Align right">
           <svg width="16" height="16" viewBox="0 0 16 16"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.5"/><line x1="4" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.5"/></svg>
         </button>
       </div>
@@ -199,7 +198,7 @@ export default class ContextToolbar {
 
       <!-- Border color -->
       <div class="mflex-group" id="mflex-group-border">
-        <button class="mflex-swatch-btn" id="mflex-border-btn" title="Border color">
+        <button class="mflex-swatch-btn" id="mflex-border-btn" data-tooltip="Border color">
           <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="2" y="13" width="12" height="1.5" rx="1" fill="currentColor"/></svg>
           <span class="mflex-chevron">▾</span>
         </button>
@@ -216,7 +215,7 @@ export default class ContextToolbar {
 
       <!-- Border width -->
       <div class="mflex-group" id="mflex-group-border-width">
-        <select class="mflex-select mflex-border-width" id="mflex-border-width" title="Border width">
+        <select class="mflex-select mflex-border-width" id="mflex-border-width" data-tooltip="Border thickness">
           <option value="1">1px</option>
           <option value="2" selected>2px</option>
           <option value="3">3px</option>
@@ -227,22 +226,9 @@ export default class ContextToolbar {
 
       <div class="mflex-sep"></div>
 
-      <!-- Dimensions W×H -->
-      <div class="mflex-group" id="mflex-group-size">
-        <button class="mflex-icon-btn" id="mflex-size-btn" title="Set width × height">
-          <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="6" x2="14" y2="2" stroke="currentColor" stroke-width="1.5"/><polyline points="12,2 14,2 14,4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
-          W×H
-        </button>
-        <div class="mflex-popover mflex-size-pop" id="mflex-size-pop">
-          <label class="mflex-dim-label">W <input type="number" id="mflex-width-input" min="30" class="mflex-dim-input"/></label>
-          <label class="mflex-dim-label">H <input type="number" id="mflex-height-input" min="30" class="mflex-dim-input"/></label>
-          <button class="mflex-apply-btn" id="mflex-size-apply">Apply</button>
-        </div>
-      </div>
-
       <!-- Add Lane (Pool / Lane only) -->
       <div class="mflex-group" id="mflex-group-addlane" style="display:none">
-        <button class="mflex-icon-btn" id="mflex-addlane-btn" title="Add lane below">
+        <button class="mflex-icon-btn" id="mflex-addlane-btn" data-tooltip="Add lane below">
           <svg width="16" height="16" viewBox="0 0 16 16">
             <rect x="1" y="1" width="14" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/>
             <rect x="1" y="9" width="14" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".45"/>
@@ -255,7 +241,7 @@ export default class ContextToolbar {
 
       <!-- Text direction toggle (Pool / Lane only) -->
       <div class="mflex-group" id="mflex-group-text-dir" style="display:none">
-        <button class="mflex-icon-btn mflex-toggle" id="mflex-text-dir-btn" title="Toggle label direction: horizontal / vertical">
+        <button class="mflex-icon-btn mflex-toggle" id="mflex-text-dir-btn" data-tooltip="Toggle label: horizontal / vertical">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M8 14 A6 6 0 1 1 14 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             <polyline points="11,5 14,8 11,11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -267,42 +253,15 @@ export default class ContextToolbar {
 
       <!-- Collapse toggle (SubProcess only) -->
       <div class="mflex-group" id="mflex-group-collapse" style="display:none">
-        <button class="mflex-icon-btn mflex-toggle" id="mflex-collapse-btn" title="Collapse / Expand">
+        <button class="mflex-icon-btn mflex-toggle" id="mflex-collapse-btn" data-tooltip="Collapse / Expand sub-process">
           <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="5" y1="8" x2="11" y2="8" stroke="currentColor" stroke-width="1.5"/><line id="mflex-collapse-vline" x1="8" y1="5" x2="8" y2="11" stroke="currentColor" stroke-width="1.5"/></svg>
         </button>
       </div>
 
       <!-- Zoom to fit -->
       <div class="mflex-group">
-        <button class="mflex-icon-btn" id="mflex-zoomfit-btn" title="Zoom to selection">
+        <button class="mflex-icon-btn" id="mflex-zoomfit-btn" data-tooltip="Zoom canvas to fit selection">
           <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="11" y1="11" x2="14" y2="14" stroke="currentColor" stroke-width="1.5"/><line x1="5" y1="7" x2="9" y2="7" stroke="currentColor" stroke-width="1.5"/><line x1="7" y1="5" x2="7" y2="9" stroke="currentColor" stroke-width="1.5"/></svg>
-        </button>
-      </div>
-
-      <div class="mflex-sep"></div>
-
-      <!-- Format painter -->
-      <div class="mflex-group">
-        <button class="mflex-icon-btn mflex-toggle" id="mflex-format-paint-btn" title="Format painter">
-          <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" opacity=".3" stroke="currentColor" stroke-width="1.2"/><line x1="9" y1="5.5" x2="14" y2="5.5" stroke="currentColor" stroke-width="1.5"/><line x1="14" y1="5.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="14" x2="14" y2="14" stroke="currentColor" stroke-width="1.5"/></svg>
-        </button>
-      </div>
-
-      <!-- Reset -->
-      <div class="mflex-group">
-        <button class="mflex-icon-btn" id="mflex-reset-btn" title="Reset all styles">
-          <svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 3a5 5 0 1 0 4.546 2.914" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><polyline points="12,1 12,5 8,5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>
-
-      <div class="mflex-sep"></div>
-
-      <!-- Delete -->
-      <div class="mflex-group">
-        <button class="mflex-icon-btn mflex-delete-btn" id="mflex-delete-btn" title="Delete (Del)">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <polyline points="2,4 14,4"/><path d="M5 4V2h6v2"/><rect x="3" y="4" width="10" height="10" rx="1"/><line x1="6" y1="7" x2="6" y2="11"/><line x1="10" y1="7" x2="10" y2="11"/>
-          </svg>
         </button>
       </div>
     </div>`;
@@ -389,7 +348,6 @@ export default class ContextToolbar {
     popToggle('mflex-fill-btn',       'mflex-fill-pop');
     popToggle('mflex-text-color-btn', 'mflex-text-color-pop');
     popToggle('mflex-border-btn',     'mflex-border-color-pop');
-    popToggle('mflex-size-btn',       'mflex-size-pop');
 
     // Reset color buttons
     tb.querySelectorAll('.mflex-reset-btn[data-reset]').forEach(btn => {
@@ -433,14 +391,6 @@ export default class ContextToolbar {
       this._applier.setStyle(this._selection, { borderWidth: +e.target.value });
     });
 
-    // W×H apply
-    tb.querySelector('#mflex-size-apply').addEventListener('click', () => {
-      const w = parseInt(tb.querySelector('#mflex-width-input').value, 10);
-      const h = parseInt(tb.querySelector('#mflex-height-input').value, 10);
-      if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) this._applyDimensions(w, h);
-      this._closePopovers();
-    });
-
     // Add Lane
     tb.querySelector('#mflex-addlane-btn').addEventListener('click', () => {
       if (this._selection.length === 1) {
@@ -475,38 +425,6 @@ export default class ContextToolbar {
       if (bbox) canvas.zoom('fit-viewport', { x: bbox.mid.x, y: bbox.mid.y });
     });
 
-    // Format painter
-    tb.querySelector('#mflex-format-paint-btn').addEventListener('click', () => {
-      if (this._formatPaint) {
-        this._applyFormatPaint();
-        this._formatPaint = null;
-        tb.querySelector('#mflex-format-paint-btn').classList.remove('active');
-      } else if (this._selection.length === 1) {
-        this._formatPaint = {
-          color: this._applier.getColor(this._selection[0]),
-          style: this._applier.getStyle(this._selection[0])
-        };
-        tb.querySelector('#mflex-format-paint-btn').classList.add('active');
-      }
-    });
-
-    // Reset all styles
-    tb.querySelector('#mflex-reset-btn').addEventListener('click', () => {
-      this._applier.setColor(this._selection, { fill: null, stroke: null });
-      this._applier.setStyle(this._selection, {
-        fontFamily: null, fontSize: null, textColor: null,
-        textAlign: null, bold: null, italic: null, underline: null,
-        borderColor: null, borderWidth: null, textDirection: null
-      });
-    });
-
-    // Delete
-    tb.querySelector('#mflex-delete-btn').addEventListener('click', () => {
-      if (!this._selection.length) return;
-      try {
-        this._modeler.get('modeling').removeElements(this._selection.slice());
-      } catch (_) {}
-    });
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -588,10 +506,6 @@ export default class ContextToolbar {
 
     // Border width
     if (style.borderWidth) tb.querySelector('#mflex-border-width').value = style.borderWidth;
-
-    // Dimensions
-    if (first.width)  tb.querySelector('#mflex-width-input').value  = Math.round(first.width);
-    if (first.height) tb.querySelector('#mflex-height-input').value = Math.round(first.height);
 
     // Text direction button state
     const textDir = style.textDirection || 'horizontal';
