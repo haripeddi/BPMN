@@ -10,6 +10,7 @@ import {
   MflexMoveRules,
   MflexFreeText,
   MflexCopyPaste,
+  MflexMarqueeSelect,
 } from './features/free-interaction/index.js';
 
 export { StyleApplier, ContextToolbar, ShapePanel };
@@ -33,6 +34,7 @@ export default {
     'mflexMoveRules',
     'mflexFreeText',
     'mflexCopyPaste',
+    'mflexMarqueeSelect',
   ],
   mflexRenderer:      ['type', MflexRenderer],
   mflexResizeHandles: ResizeModule.mflexResizeHandles,
@@ -40,4 +42,5 @@ export default {
   mflexMoveRules:     ['type', MflexMoveRules],
   mflexFreeText:      ['type', MflexFreeText],
   mflexCopyPaste:     ['type', MflexCopyPaste],
+  mflexMarqueeSelect: ['type', MflexMarqueeSelect],
 };

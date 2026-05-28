@@ -93,39 +93,60 @@ MflexFreeText.$inject = ['eventBus', 'elementFactory', 'modeling', 'canvas', 'di
 // ─── 3. Copy / Paste helper ───────────────────────────────────────────────────
 
 export class MflexCopyPaste {
-  constructor(copyPaste, selection, canvas, keyboard, eventBus) {
+  constructor(copyPaste, selection, canvas, elementRegistry) {
     this._cp      = copyPaste;
     this._sel     = selection;
     this._canvas  = canvas;
+    this._elementRegistry = elementRegistry;
+    this._lastPointer = null;
 
-    // Ctrl/Cmd + C  →  copy selection
-    keyboard.addListener(1500, ({ keyEvent }) => {
-      if (!isCmdC(keyEvent)) return;
+    const canvasEl = canvas.getContainer();
+    canvasEl.addEventListener('mousemove', (e) => {
+      const vb = canvas.viewbox();
+      const cr = canvasEl.getBoundingClientRect();
+      this._lastPointer = {
+        x: (e.clientX - cr.left) / vb.scale + vb.x,
+        y: (e.clientY - cr.top)  / vb.scale + vb.y,
+      };
+    });
+
+    // Single capture-phase key handler (Mac-friendly, avoids duplicate paste handlers).
+    window.addEventListener('keydown', (keyEvent) => {
+      if (shouldIgnoreShortcut(keyEvent)) return;
+
       const selected = selection.get();
-      if (selected.length) {
-        copyPaste.copy(selected);
-        return true; // consumed
-      }
-    });
 
-    // Ctrl/Cmd + V  →  paste
-    keyboard.addListener(1500, ({ keyEvent }) => {
-      if (!isCmdV(keyEvent)) return;
-      this._paste();
-      return true;
-    });
-
-    // Ctrl/Cmd + D  →  duplicate (copy + paste with offset)
-    keyboard.addListener(1500, ({ keyEvent }) => {
-      if (!isCmdD(keyEvent)) return;
-      keyEvent.preventDefault();
-      const selected = selection.get();
-      if (selected.length) {
-        copyPaste.copy(selected);
-        this._paste(20, 20);
+      if (isCmdC(keyEvent)) {
+        if (selected.length) {
+          keyEvent.preventDefault();
+          copyPaste.copy(selected);
+        }
+        return;
       }
-      return true;
-    });
+
+      if (isCmdV(keyEvent)) {
+        keyEvent.preventDefault();
+        this._paste();
+        return;
+      }
+
+      if (isCmdD(keyEvent)) {
+        keyEvent.preventDefault();
+        if (selected.length) {
+          copyPaste.copy(selected);
+          this._paste(24, 24);
+        }
+        return;
+      }
+
+      if (isCmdA(keyEvent)) {
+        keyEvent.preventDefault();
+        const root = canvas.getRootElement();
+        const all = this._elementRegistry.getAll()
+          .filter(el => !el.labelTarget && el !== root && !el.waypoints);
+        this._sel.select(all);
+      }
+    }, true);
   }
 
   copy(elements) {
@@ -138,12 +159,16 @@ export class MflexCopyPaste {
     try {
       const root = this._canvas.getRootElement();
       const vb   = this._canvas.viewbox();
-      // Paste at viewport centre + optional offset
+      // Paste at current mouse position if available; otherwise viewport center.
+      const base = this._lastPointer || {
+        x: vb.x + vb.width  / 2,
+        y: vb.y + vb.height / 2,
+      };
       this._cp.paste({
         element: root,
         point: {
-          x: vb.x + vb.width  / 2 + dx,
-          y: vb.y + vb.height / 2 + dy,
+          x: base.x + dx,
+          y: base.y + dy,
         }
       });
     } catch (err) {
@@ -152,7 +177,40 @@ export class MflexCopyPaste {
   }
 }
 
-MflexCopyPaste.$inject = ['copyPaste', 'selection', 'canvas', 'keyboard', 'eventBus'];
+MflexCopyPaste.$inject = ['copyPaste', 'selection', 'canvas', 'elementRegistry'];
+
+// ─── 4. Marquee select (Miro-like empty-canvas drag) ─────────────────────────
+
+export class MflexMarqueeSelect {
+  constructor(eventBus, canvas, lassoTool) {
+    const canvasEl = canvas.getContainer();
+
+    // Robust fallback: start marquee from empty-canvas DOM background drag.
+    canvasEl.addEventListener('mousedown', (e) => {
+      if (!e || e.button !== 0) return;
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      if (e.target && e.target.closest('.djs-element')) return;
+      try { lassoTool.activateSelection(e); } catch (_) {}
+    }, true);
+
+    eventBus.on('element.mousedown', 1600, (event) => {
+      const { element, originalEvent } = event;
+      if (!originalEvent || originalEvent.button !== 0) return;
+      if (originalEvent.ctrlKey || originalEvent.metaKey || originalEvent.shiftKey || originalEvent.altKey) return;
+
+      const root = canvas.getRootElement();
+      if (element !== root) return;
+
+      // Start rectangle selection on empty-canvas drag instead of pan/move behavior.
+      try {
+        lassoTool.activateSelection(originalEvent);
+        event.stopPropagation();
+      } catch (_) {}
+    });
+  }
+}
+
+MflexMarqueeSelect.$inject = ['eventBus', 'canvas', 'lassoTool'];
 
 // ─── Keyboard helpers ─────────────────────────────────────────────────────────
 
@@ -160,12 +218,24 @@ function isCmd(e)  { return e.ctrlKey || e.metaKey; }
 function isCmdC(e) { return isCmd(e) && (e.key === 'c' || e.key === 'C') && !e.shiftKey; }
 function isCmdV(e) { return isCmd(e) && (e.key === 'v' || e.key === 'V') && !e.shiftKey; }
 function isCmdD(e) { return isCmd(e) && (e.key === 'd' || e.key === 'D') && !e.shiftKey; }
+function isCmdA(e) { return isCmd(e) && (e.key === 'a' || e.key === 'A') && !e.shiftKey; }
+
+function shouldIgnoreShortcut(e) {
+  const t = e.target;
+  if (!t) return false;
+  const tag = t.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (t.isContentEditable) return true;
+  if (t.closest && t.closest('.djs-direct-editing-parent')) return true;
+  return false;
+}
 
 // ─── Module descriptor ───────────────────────────────────────────────────────
 
 export default {
-  __init__: ['mflexMoveRules', 'mflexFreeText', 'mflexCopyPaste'],
+  __init__: ['mflexMoveRules', 'mflexFreeText', 'mflexCopyPaste', 'mflexMarqueeSelect'],
   mflexMoveRules: ['type', MflexMoveRules],
   mflexFreeText:  ['type', MflexFreeText],
   mflexCopyPaste: ['type', MflexCopyPaste],
+  mflexMarqueeSelect: ['type', MflexMarqueeSelect],
 };

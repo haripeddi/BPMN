@@ -164,6 +164,63 @@ async function openDiagram(xml) {
   }
 }
 
+function getCanvasPointFromClient(clientX, clientY) {
+  const canvas = modeler.get('canvas');
+  const vb = canvas.viewbox();
+  const cr = canvas.getContainer().getBoundingClientRect();
+  return {
+    x: (clientX - cr.left) / vb.scale + vb.x,
+    y: (clientY - cr.top)  / vb.scale + vb.y,
+  };
+}
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+}
+
+function getImageSize(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+async function insertImageOnCanvas(file, point = null) {
+  const dataUrl = await readFileAsDataURL(file);
+  const natural = await getImageSize(dataUrl);
+  const canvas = modeler.get('canvas');
+  const ef = modeler.get('elementFactory');
+  const modeling = modeler.get('modeling');
+  const root = canvas.getRootElement();
+  const vb = canvas.viewbox();
+
+  const maxW = Math.max(220, vb.width * 0.45);
+  const maxH = Math.max(180, vb.height * 0.45);
+  const scale = Math.min(maxW / natural.width, maxH / natural.height, 1);
+  const width = Math.max(120, Math.round(natural.width * scale));
+  const height = Math.max(80, Math.round(natural.height * scale));
+
+  const anchor = point || { x: vb.x + vb.width / 2, y: vb.y + vb.height / 2 };
+  const shape = ef.createShape({
+    type: 'bpmn:TextAnnotation',
+    width,
+    height
+  });
+  if (shape.businessObject) {
+    shape.businessObject.text = '';
+    shape.businessObject.__mflexImageSrc = dataUrl;
+  }
+
+  modeling.createShape(shape, { x: anchor.x - width / 2, y: anchor.y - height / 2 }, root);
+}
+
 function downloadBlob(filename, contents, mime) {
   const blob = new Blob([contents], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -188,8 +245,20 @@ document.getElementById('btn-open').addEventListener('click', () => {
 fileInput.addEventListener('change', async (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  const text = await file.text();
-  openDiagram(text);
+  const isImage = !!(file.type && file.type.startsWith('image/'));
+
+  try {
+    if (isImage) {
+      await insertImageOnCanvas(file);
+      setStatus('Image added to canvas', 'ok');
+    } else {
+      const text = await file.text();
+      await openDiagram(text);
+    }
+  } catch (err) {
+    console.error(err);
+    setStatus('Open failed', 'error');
+  }
 });
 
 document.getElementById('btn-save-bpmn').addEventListener('click', async () => {
@@ -216,64 +285,32 @@ document.getElementById('btn-save-svg').addEventListener('click', async () => {
   }
 });
 
+// Paste image from OS clipboard (e.g., screenshots on Mac) directly to canvas
+window.addEventListener('paste', async (e) => {
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  const imageItem = Array.from(items).find(it => it.type && it.type.startsWith('image/'));
+  if (!imageItem) return;
+
+  const file = imageItem.getAsFile();
+  if (!file) return;
+
+  e.preventDefault();
+  try {
+    const hasPointer = typeof e.clientX === 'number' && typeof e.clientY === 'number' && (e.clientX !== 0 || e.clientY !== 0);
+    const point = hasPointer ? getCanvasPointFromClient(e.clientX, e.clientY) : null;
+    await insertImageOnCanvas(file, point);
+    setStatus('Pasted image to canvas', 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus('Image paste failed', 'error');
+  }
+}, true);
+
 document.getElementById('btn-undo').addEventListener('click', () => {
   modeler.get('commandStack').undo();
 });
 document.getElementById('btn-redo').addEventListener('click', () => {
   modeler.get('commandStack').redo();
-});
-
-// ─── Global keyboard shortcuts (copy / paste / duplicate / delete) ─────────
-// bpmn-js binds Ctrl+Z/Y itself; we add C/V/D/Delete here as a safe fallback.
-window.addEventListener('keydown', (e) => {
-  // Skip when the user is typing in an input or direct-edit overlay
-  const tag = document.activeElement && document.activeElement.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-  if (document.activeElement && document.activeElement.contentEditable === 'true') return;
-  // Skip while inside bpmn-js direct-edit (contenteditable div)
-  if (document.activeElement && document.activeElement.closest('.djs-direct-editing-parent')) return;
-
-  const isCmd = e.ctrlKey || e.metaKey;
-  if (!isCmd) return;
-
-  const cp     = modeler.get('copyPaste');
-  const sel    = modeler.get('selection').get();
-  const canvas = modeler.get('canvas');
-  const root   = canvas.getRootElement();
-  const vb     = canvas.viewbox();
-  const mid    = { x: vb.x + vb.width / 2, y: vb.y + vb.height / 2 };
-
-  switch (e.key.toLowerCase()) {
-    case 'c':
-      if (sel.length) { cp.copy(sel); setStatus('Copied', 'ok'); }
-      break;
-
-    case 'v':
-      try { cp.paste({ element: root, point: mid }); } catch (_) {}
-      break;
-
-    case 'd':
-      e.preventDefault();
-      if (sel.length) {
-        cp.copy(sel);
-        try {
-          cp.paste({ element: root, point: {
-            x: sel[0].x + (sel[0].width  || 100) + 24,
-            y: sel[0].y + 24,
-          }});
-        } catch (_) {}
-      }
-      break;
-
-    case 'a':
-      e.preventDefault();
-      {
-        const all = modeler.get('elementRegistry').getAll()
-          .filter(el => !el.labelTarget && el !== root);
-        modeler.get('selection').select(all);
-      }
-      break;
-  }
 });
 
 openDiagram(EMPTY_DIAGRAM);

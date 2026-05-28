@@ -16,12 +16,15 @@ const STYLE_ATTRS = [
   'fontFamily', 'fontSize', 'textColor', 'textAlign',
   'bold', 'italic', 'underline', 'borderWidth', 'textDirection',
   'stickyFill',   // background fill for sticky-note TextAnnotations
+  'shapeType',    // custom geometry (oval, rounded-rect, triangle, ...)
 ];
 
 export default class StyleApplier {
   constructor(modeler) {
     this._modeler = modeler;
     this._styles  = new Map(); // elementId → { fontFamily, fontSize, textColor, … }
+    this._annotationLiveResizeCleanup = null;
+    this._activeAnnotationSyncHeight = null;
 
     // Persistent <style> tag for font/text rules (CSS !important beats any bpmn-js re-render)
     this._fontStyleEl = document.createElement('style');
@@ -84,9 +87,11 @@ export default class StyleApplier {
 
     // ── Sticky note editing: full-coverage, correct colors, Enter = newline ──
     this._annotationEditing = false;
+    this._activeAnnotationElement = null;
 
     eventBus.on('directEditing.activate', ({ element }) => {
       this._annotationEditing = is(element, 'bpmn:TextAnnotation');
+      this._activeAnnotationElement = this._annotationEditing ? element : null;
       if (!this._annotationEditing) return;
 
       const fill = (this._styles.get(element.id) || {}).stickyFill || null;
@@ -118,14 +123,40 @@ export default class StyleApplier {
           content.style.cursor      = 'text';
           content.style.whiteSpace  = 'pre-wrap';
           content.style.overflowWrap = 'break-word';
+          content.style.background  = 'transparent';
           // Left-align text (override any inherited center)
           content.style.textAlign   = 'left';
+
+          // Live-resize sticky note while user types/newlines.
+          // This prevents text from visually escaping the note background.
+          const minH = Math.max(80, element.height || 80);
+          const syncLiveHeight = () => {
+            const needed = Math.max(minH, content.scrollHeight + 14);
+            parent.style.height = `${needed}px`;
+            parent.style.minHeight = `${needed}px`;
+            content.style.height = `${needed}px`;
+            content.style.minHeight = `${needed}px`;
+          };
+          this._activeAnnotationSyncHeight = syncLiveHeight;
+
+          // Initialize and keep in sync on every keystroke/paste.
+          syncLiveHeight();
+          content.addEventListener('input', syncLiveHeight);
+          this._annotationLiveResizeCleanup = () => {
+            content.removeEventListener('input', syncLiveHeight);
+          };
         }
       }, 0);
     });
 
     eventBus.on(['directEditing.complete', 'directEditing.cancel', 'directEditing.deactivate'], () => {
       this._annotationEditing = false;
+      if (this._annotationLiveResizeCleanup) {
+        this._annotationLiveResizeCleanup();
+        this._annotationLiveResizeCleanup = null;
+      }
+      this._activeAnnotationSyncHeight = null;
+      if (!this._annotationEditing) this._activeAnnotationElement = null;
     });
 
     // ③ Enter key → insert newline (not complete) when editing sticky notes.
@@ -160,12 +191,22 @@ export default class StyleApplier {
           sel.addRange(range);
         }
       }
+      // Enter path uses custom insertion; force live height sync after it.
+      requestAnimationFrame(() => {
+        if (this._activeAnnotationSyncHeight) this._activeAnnotationSyncHeight();
+      });
     }, true); // ← capture phase
 
     // After text editing completes on a TextAnnotation, auto-resize to fit content
     eventBus.on('directEditing.complete', ({ element }) => {
-      if (!is(element, 'bpmn:TextAnnotation')) return;
-      setTimeout(() => this._autoResizeAnnotation(element), 40);
+      const annotation = (element && is(element, 'bpmn:TextAnnotation'))
+        ? element
+        : this._activeAnnotationElement;
+      if (!annotation || !is(annotation, 'bpmn:TextAnnotation')) return;
+
+      this._normalizeAnnotationTextSpacing(annotation);
+      setTimeout(() => this._autoResizeAnnotation(annotation), 40);
+      this._activeAnnotationElement = null;
     });
 
     // When a new shape lands on canvas (from palette / paste / import)
@@ -365,6 +406,26 @@ export default class StyleApplier {
     } catch (_) {}
   }
 
+  /**
+   * Keep intentionally blank lines inside TextAnnotations.
+   * Replaces empty lines with NBSP so BPMN text layout does not collapse them.
+   */
+  _normalizeAnnotationTextSpacing(element) {
+    const bo = element && element.businessObject;
+    const text = bo && bo.text;
+    if (typeof text !== 'string' || !text.includes('\n\n')) return;
+
+    const normalized = text
+      .split('\n')
+      .map(line => line === '' ? '\u00A0' : line)
+      .join('\n');
+
+    if (normalized === text) return;
+    try {
+      this._modeler.get('modeling').updateProperties(element, { text: normalized });
+    } catch (_) {}
+  }
+
   /** Read the mflex style for an element */
   getStyle(element) {
     if (!element) return {};
@@ -481,6 +542,9 @@ export default class StyleApplier {
     if (is(element, 'bpmn:TextAnnotation') && style.stickyFill) {
       this._applyAnnotationStyle(element, style.stickyFill, gfx);
     }
+    if (is(element, 'bpmn:TextAnnotation')) {
+      this._applyAnnotationTextLayout(gfx);
+    }
 
     // ── Custom shape geometry (parallelogram, hexagon, etc.) ──────────────
     if (style.shapeType) {
@@ -560,6 +624,14 @@ export default class StyleApplier {
         newShape.setAttribute('height', height);
         newShape.setAttribute('rx', rx);
         newShape.setAttribute('ry', rx);
+        break;
+      }
+      case 'oval': {
+        newShape = document.createElementNS(NS, 'ellipse');
+        newShape.setAttribute('cx', String(width / 2));
+        newShape.setAttribute('cy', String(height / 2));
+        newShape.setAttribute('rx', String(width / 2));
+        newShape.setAttribute('ry', String(height / 2));
         break;
       }
       default:
@@ -662,7 +734,9 @@ export default class StyleApplier {
     // Resolve fill: explicit override → stored stickyFill style → no fill
     const fill = fillColor
       || (this._styles.get(element.id) || {}).stickyFill
+      || (element.businessObject && element.businessObject.__mflexStickyFill)
       || null;
+    const imageSrc = element.businessObject && element.businessObject.__mflexImageSrc;
 
     const visual = gfx.querySelector('.djs-visual');
     if (!visual) return;
@@ -693,6 +767,35 @@ export default class StyleApplier {
     bgRect.setAttribute('width',  String(w));
     bgRect.setAttribute('height', String(h));
 
+    if (imageSrc) {
+      bgRect.setAttribute('rx', '6');
+      bgRect.setAttribute('ry', '6');
+      bgRect.setAttribute('stroke', '#cbd5e1');
+      bgRect.setAttribute('stroke-width', '1');
+      bgRect.setAttribute('fill', '#ffffff');
+      bgRect.style.fill = '#ffffff';
+      bgRect.style.stroke = '#cbd5e1';
+      visual.querySelectorAll('.mflex-sticky-fold').forEach(n => n.remove());
+
+      let imgEl = visual.querySelector('image.mflex-annotation-image');
+      if (!imgEl) {
+        imgEl = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+        imgEl.classList.add('mflex-annotation-image');
+        visual.insertBefore(imgEl, visual.querySelector('text'));
+      }
+      const pad = 2;
+      imgEl.setAttribute('x', String(pad));
+      imgEl.setAttribute('y', String(pad));
+      imgEl.setAttribute('width', String(Math.max(1, w - pad * 2)));
+      imgEl.setAttribute('height', String(Math.max(1, h - pad * 2)));
+      imgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      imgEl.setAttribute('href', imageSrc);
+      imgEl.setAttributeNS('http://www.w3.org/1999/xlink', 'href', imageSrc);
+      return;
+    }
+
+    visual.querySelectorAll('image.mflex-annotation-image').forEach(n => n.remove());
+
     if (fill) {
       bgRect.setAttribute('rx', '5');
       bgRect.setAttribute('ry', '5');
@@ -700,6 +803,19 @@ export default class StyleApplier {
       bgRect.setAttribute('fill', fill);
       bgRect.style.fill   = fill;
       bgRect.style.stroke = 'none';
+
+      // Sticky-note corner fold (Miro-like visual)
+      let fold = visual.querySelector('polygon.mflex-sticky-fold');
+      if (!fold) {
+        fold = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        fold.classList.add('mflex-sticky-fold');
+        visual.appendChild(fold);
+      }
+      const foldW = Math.max(10, Math.min(18, w * 0.14));
+      fold.setAttribute('points', `${w - foldW},0 ${w},0 ${w},${foldW}`);
+      fold.setAttribute('fill', 'rgba(255,255,255,0.58)');
+      fold.setAttribute('stroke', 'rgba(0,0,0,0.08)');
+      fold.setAttribute('stroke-width', '1');
     } else {
       bgRect.setAttribute('rx', '4');
       bgRect.setAttribute('ry', '4');
@@ -708,7 +824,38 @@ export default class StyleApplier {
       bgRect.setAttribute('fill', '#ffffff');
       bgRect.style.fill   = '#ffffff';
       bgRect.style.stroke = '#9ca3af';
+      visual.querySelectorAll('.mflex-sticky-fold').forEach(n => n.remove());
     }
+
+    this._applyAnnotationTextLayout(gfx);
+  }
+
+  _applyAnnotationTextLayout(gfx) {
+    const visual = gfx.querySelector('.djs-visual');
+    if (!visual) return;
+    const textEl = visual.querySelector('text');
+    if (!textEl) return;
+
+    const padX = 12;
+    const padY = 16;
+    textEl.setAttribute('text-anchor', 'start');
+    textEl.setAttribute('dominant-baseline', 'hanging');
+    textEl.setAttribute('x', String(padX));
+    textEl.setAttribute('y', String(padY));
+
+    const lines = textEl.querySelectorAll('tspan');
+    lines.forEach((ts, idx) => {
+      ts.setAttribute('x', String(padX));
+      if (idx === 0) {
+        ts.setAttribute('y', String(padY));
+        ts.removeAttribute('dy');
+      } else {
+        ts.setAttribute('dy', '1.25em');
+      }
+      if ((ts.textContent || '') === '') {
+        ts.textContent = '\u00A0';
+      }
+    });
   }
 
   /** Re-apply all stored styles to every visible element */

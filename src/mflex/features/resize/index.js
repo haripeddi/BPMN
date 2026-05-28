@@ -79,15 +79,17 @@ MflexResizeRules.$inject = ['eventBus'];
 // ─── Resize + Connection Handles ──────────────────────────────────────────────
 
 class MflexResizeHandles {
-  constructor(eventBus, canvas, selection, resize, connect, modeling, elementFactory) {
+  constructor(eventBus, canvas, selection, resize, connect, modeling, elementFactory, elementRegistry) {
     this._canvas         = canvas;
     this._resize         = resize;
     this._connect        = connect;
     this._modeling       = modeling;
     this._elementFactory = elementFactory;
+    this._elementRegistry = elementRegistry;
     this._container      = null;
     this._current        = null;
     this._ghost          = null;
+    this._previewConn    = null;
     this._isDragging     = false;
     this._isEditing      = false;
 
@@ -155,6 +157,13 @@ class MflexResizeHandles {
       'canvas.viewbox.changed',
     ], onDragEnd);
 
+    // Keep connections visible after aggressive free-move / overlap cases.
+    eventBus.on('shape.move.end', (e) => {
+      const moved = (e && (e.shape || (e.context && e.context.shape))) || null;
+      if (!moved) return;
+      this._ensureVisibleConnections(moved);
+    });
+
     // ── Direct-edit lifecycle ────────────────────────────────────────────
     eventBus.on('directEditing.activate', () => {
       this._isEditing = true;
@@ -198,6 +207,7 @@ class MflexResizeHandles {
 
   _clear() {
     this._clearGhost();
+    this._clearPreviewConnection();
     if (this._container) {
       this._container.remove();
       this._container = null;
@@ -252,6 +262,7 @@ class MflexResizeHandles {
         // Keep ghost alive while cursor moves to it
         if (this._ghost && this._ghost.contains(e.relatedTarget)) return;
         this._clearGhost();
+        this._clearPreviewConnection();
       });
 
       // Click vs drag: start on mousedown, decide on mousemove/mouseup
@@ -284,9 +295,10 @@ class MflexResizeHandles {
           document.removeEventListener('mousemove', onMove);
           document.removeEventListener('mouseup', onUp);
           if (!dragged) {
-            // Simple click → create a new connected element
+            // Simple click → connect to nearest in that direction, else create new
             this._clearGhost();
-            this._createConnected(element, side);
+            this._clearPreviewConnection();
+            this._connectFromSide(element, side);
           }
         };
 
@@ -313,13 +325,27 @@ class MflexResizeHandles {
 
     const { x, y, width, height } = element;
     const { sx, sy } = this._scale();
+    const existingTarget = this._findNearestTarget(element, side);
+    const previewElement = existingTarget || element;
+    const { x: px, y: py, width: pw, height: ph } = previewElement;
 
-    // Center of the ghost in diagram coordinates
-    const gCX = x + width  / 2 + side.dx * (width  + CONNECT_GAP);
-    const gCY = y + height / 2 + side.dy * (height + CONNECT_GAP);
+    // Center of the ghost in diagram coordinates:
+    // if a nearby target exists, mirror that target; otherwise show new-shape location.
+    const gCX = existingTarget
+      ? (px + pw / 2)
+      : (x + width / 2 + side.dx * (width + CONNECT_GAP));
+    const gCY = existingTarget
+      ? (py + ph / 2)
+      : (y + height / 2 + side.dy * (height + CONNECT_GAP));
+
+    if (existingTarget) {
+      this._showPreviewConnection(element, existingTarget, side);
+    } else {
+      this._clearPreviewConnection();
+    }
 
     // Top-left corner of ghost in page coordinates
-    const tl = this._toPage(gCX - width / 2, gCY - height / 2);
+    const tl = this._toPage(gCX - pw / 2, gCY - ph / 2);
 
     const ghost = document.createElement('div');
     ghost.className = 'mflex-connect-ghost';
@@ -327,20 +353,20 @@ class MflexResizeHandles {
       'position:fixed',
       `left:${tl.left}px`,
       `top:${tl.top}px`,
-      `width:${Math.max(width * sx, 30)}px`,
-      `height:${Math.max(height * sy, 24)}px`,
+      `width:${Math.max(pw * sx, 30)}px`,
+      `height:${Math.max(ph * sy, 24)}px`,
       'pointer-events:all',
       'overflow:hidden',
     ].join(';');
 
     // Clone the source element's rendered SVG so the ghost looks like the actual shape
     try {
-      const gfxNode  = this._canvas.getGraphics(element);
+      const gfxNode  = this._canvas.getGraphics(previewElement);
       const container = (gfxNode && gfxNode.node) || gfxNode;
       const visualGrp = container && container.querySelector('.djs-visual');
       if (visualGrp) {
         const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svgEl.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svgEl.setAttribute('viewBox', `0 0 ${pw} ${ph}`);
         svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
         svgEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;opacity:0.5;pointer-events:none;';
 
@@ -356,10 +382,14 @@ class MflexResizeHandles {
     ghost.addEventListener('click', (e) => {
       e.stopPropagation();
       this._clearGhost();
-      this._createConnected(element, side);
+      this._clearPreviewConnection();
+      this._connectFromSide(element, side);
     });
 
-    ghost.addEventListener('mouseleave', () => this._clearGhost());
+    ghost.addEventListener('mouseleave', () => {
+      this._clearGhost();
+      this._clearPreviewConnection();
+    });
 
     document.body.appendChild(ghost);
     this._ghost = ghost;
@@ -370,6 +400,358 @@ class MflexResizeHandles {
       this._ghost.remove();
       this._ghost = null;
     }
+  }
+
+  _showPreviewConnection(sourceElement, targetElement, side) {
+    this._clearPreviewConnection();
+
+    const sourceCenterY = sourceElement.y + sourceElement.height / 2;
+    const sourceCenterX = sourceElement.x + sourceElement.width / 2;
+    const targetCenterY = targetElement.y + targetElement.height / 2;
+    const targetCenterX = targetElement.x + targetElement.width / 2;
+
+    let fromX = sourceCenterX;
+    let fromY = sourceCenterY;
+    let toX = targetCenterX;
+    let toY = targetCenterY;
+
+    if (side.id === 'e') {
+      fromX = sourceElement.x + sourceElement.width;
+      fromY = sourceCenterY;
+      toX = targetElement.x;
+      toY = clamp(sourceCenterY, targetElement.y, targetElement.y + targetElement.height);
+    } else if (side.id === 'w') {
+      fromX = sourceElement.x;
+      fromY = sourceCenterY;
+      toX = targetElement.x + targetElement.width;
+      toY = clamp(sourceCenterY, targetElement.y, targetElement.y + targetElement.height);
+    } else if (side.id === 's') {
+      fromX = sourceCenterX;
+      fromY = sourceElement.y + sourceElement.height;
+      toX = clamp(sourceCenterX, targetElement.x, targetElement.x + targetElement.width);
+      toY = targetElement.y;
+    } else if (side.id === 'n') {
+      fromX = sourceCenterX;
+      fromY = sourceElement.y;
+      toX = clamp(sourceCenterX, targetElement.x, targetElement.x + targetElement.width);
+      toY = targetElement.y + targetElement.height;
+    }
+
+    const p1 = this._toPage(fromX, fromY);
+    const p2 = this._toPage(toX, toY);
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.classList.add('mflex-conn-preview');
+    svg.style.cssText = [
+      'position:fixed',
+      'left:0',
+      'top:0',
+      'width:100vw',
+      'height:100vh',
+      'pointer-events:none',
+      'z-index:7490'
+    ].join(';');
+
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+    marker.setAttribute('id', 'mflex-preview-arrowhead');
+    marker.setAttribute('viewBox', '0 0 10 10');
+    marker.setAttribute('refX', '9');
+    marker.setAttribute('refY', '5');
+    marker.setAttribute('markerWidth', '7');
+    marker.setAttribute('markerHeight', '7');
+    marker.setAttribute('orient', 'auto');
+
+    const arrowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    arrowPath.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+    arrowPath.setAttribute('fill', '#2563eb');
+    marker.appendChild(arrowPath);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', String(p1.left));
+    line.setAttribute('y1', String(p1.top));
+    line.setAttribute('x2', String(p2.left));
+    line.setAttribute('y2', String(p2.top));
+    line.setAttribute('stroke', '#2563eb');
+    line.setAttribute('stroke-width', '2');
+    line.setAttribute('stroke-linecap', 'round');
+    line.setAttribute('marker-end', 'url(#mflex-preview-arrowhead)');
+    line.setAttribute('stroke-dasharray', '5 4');
+    svg.appendChild(line);
+
+    document.body.appendChild(svg);
+    this._previewConn = svg;
+  }
+
+  _clearPreviewConnection() {
+    if (this._previewConn) {
+      this._previewConn.remove();
+      this._previewConn = null;
+    }
+  }
+
+  _connectFromSide(sourceElement, side) {
+    const target = this._findNearestTarget(sourceElement, side);
+    if (target) {
+      // If a nearby target exists, prioritize connecting to it.
+      // Do NOT create a new shape in this path; this matches Miro-style intent.
+      if (!this._connectElements(sourceElement, target, side)) {
+        console.warn('[mflex] Found nearby target but connection was not allowed');
+      }
+      return;
+    }
+
+    this._createConnected(sourceElement, side);
+  }
+
+  _findNearestTarget(sourceElement, side) {
+    const sx1 = sourceElement.x;
+    const sy1 = sourceElement.y;
+    const sx2 = sourceElement.x + sourceElement.width;
+    const sy2 = sourceElement.y + sourceElement.height;
+    const MAX_ALONG_DIST = 500;
+    const AXIS_PAD = 12;
+
+    const candidates = this._elementRegistry.filter((el) => {
+      if (!el || el.id === sourceElement.id) return false;
+      if (el.waypoints || el.type === 'label') return false;
+      if (!el.width || !el.height) return false;
+      if (!this._isConnectableNode(el)) return false;
+      return true;
+    });
+
+    let best = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const el of candidates) {
+      const tx1 = el.x;
+      const ty1 = el.y;
+      const tx2 = el.x + el.width;
+      const ty2 = el.y + el.height;
+
+      let along = Number.POSITIVE_INFINITY;
+      let perp = Number.POSITIVE_INFINITY;
+
+      if (side.id === 'e') {
+        along = tx1 - sx2;
+        if (along < -AXIS_PAD || along > MAX_ALONG_DIST) continue;
+        perp = intervalGap(sy1, sy2, ty1, ty2);
+      } else if (side.id === 'w') {
+        along = sx1 - tx2;
+        if (along < -AXIS_PAD || along > MAX_ALONG_DIST) continue;
+        perp = intervalGap(sy1, sy2, ty1, ty2);
+      } else if (side.id === 's') {
+        along = ty1 - sy2;
+        if (along < -AXIS_PAD || along > MAX_ALONG_DIST) continue;
+        perp = intervalGap(sx1, sx2, tx1, tx2);
+      } else if (side.id === 'n') {
+        along = sy1 - ty2;
+        if (along < -AXIS_PAD || along > MAX_ALONG_DIST) continue;
+        perp = intervalGap(sx1, sx2, tx1, tx2);
+      }
+
+      // Strongly prioritize objects aligned on the same row/column,
+      // then nearest in the requested direction.
+      const score = perp * 10 + Math.max(0, along);
+      if (score < bestScore) {
+        bestScore = score;
+        best = el;
+      }
+    }
+
+    return best;
+  }
+
+  _isConnectableNode(element) {
+    const bo = element && element.businessObject;
+    if (!bo || typeof bo.$instanceOf !== 'function') return false;
+
+    // Exclude non-connectable containers/canvas structures that otherwise
+    // often become false "nearest targets" (Lane/Participant/etc).
+    if (bo.$instanceOf('bpmn:Participant')) return false;
+    if (bo.$instanceOf('bpmn:Lane')) return false;
+    if (bo.$instanceOf('bpmn:Process')) return false;
+    if (bo.$instanceOf('bpmn:Collaboration')) return false;
+
+    // Include actual diagram nodes users expect to connect.
+    return (
+      bo.$instanceOf('bpmn:FlowNode') ||
+      bo.$instanceOf('bpmn:Artifact') ||
+      bo.$instanceOf('bpmn:DataObjectReference')
+    );
+  }
+
+  _hasConnectionBetween(sourceElement, targetElement) {
+    const outgoing = sourceElement.outgoing || [];
+    return outgoing.some((conn) => conn && conn.target && conn.target.id === targetElement.id);
+  }
+
+  _connectElements(sourceElement, targetElement, side = null) {
+    if (!targetElement) return false;
+    if (this._hasConnectionBetween(sourceElement, targetElement)) return true;
+
+    const waypoints = side ? this._buildWaypointsForSide(sourceElement, targetElement, side) : null;
+
+    // Attempt 1: auto type by bpmn-js rules
+    try {
+      const conn = this._modeling.connect(sourceElement, targetElement);
+      if (conn) return true;
+    } catch (_) {}
+
+    // Attempt 2: explicit SequenceFlow with robust parent fallback order.
+    // Using the nearest valid parent keeps BPMN DI waypoints + arrow marker stable.
+    const seqParents = [
+      sourceElement.parent,
+      targetElement.parent,
+      this._findCommonConnectionParent(sourceElement, targetElement)
+    ].filter(Boolean);
+
+    for (const p of seqParents) {
+      try {
+        this._modeling.createConnection(
+          sourceElement,
+          targetElement,
+          waypoints
+            ? { type: 'bpmn:SequenceFlow', waypoints }
+            : { type: 'bpmn:SequenceFlow' },
+          p
+        );
+        return true;
+      } catch (_) {}
+    }
+
+    // Attempt 3: explicit Association as final fallback.
+    // Set associationDirection=One so the fallback still has a visible arrowhead.
+    const assocParents = seqParents.length ? seqParents : [sourceElement.parent].filter(Boolean);
+    for (const p of assocParents) {
+      try {
+        this._modeling.createConnection(
+          sourceElement,
+          targetElement,
+          waypoints
+            ? { type: 'bpmn:Association', associationDirection: 'One', waypoints }
+            : { type: 'bpmn:Association', associationDirection: 'One' },
+          p
+        );
+        return true;
+      } catch (_) {}
+    }
+
+    return false;
+  }
+
+  _ensureVisibleConnections(shape) {
+    const conns = [...(shape.incoming || []), ...(shape.outgoing || [])];
+    conns.forEach((conn) => {
+      if (!conn || !conn.source || !conn.target) return;
+      const wp = conn.waypoints || [];
+      if (wp.length < 2) return;
+
+      const a = wp[0];
+      const b = wp[wp.length - 1];
+      const dist = Math.hypot((b.x - a.x), (b.y - a.y));
+      if (dist >= 12) return; // normal connection is already visible
+
+      const rebuilt = this._buildConnectionWaypointsFromBounds(conn.source, conn.target);
+      if (!rebuilt) return;
+      try {
+        this._modeling.updateWaypoints(conn, rebuilt);
+      } catch (_) {}
+    });
+  }
+
+  _buildConnectionWaypointsFromBounds(sourceElement, targetElement) {
+    if (!sourceElement || !targetElement) return null;
+    const sx = sourceElement.x + sourceElement.width / 2;
+    const sy = sourceElement.y + sourceElement.height / 2;
+    const tx = targetElement.x + targetElement.width / 2;
+    const ty = targetElement.y + targetElement.height / 2;
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const OUTER = 4;
+
+    let from;
+    let to;
+
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      // Horizontal dominant
+      if (dx >= 0) {
+        from = { x: sourceElement.x + sourceElement.width, y: sy };
+        to   = { x: targetElement.x - OUTER, y: clamp(sy, targetElement.y, targetElement.y + targetElement.height) };
+      } else {
+        from = { x: sourceElement.x, y: sy };
+        to   = { x: targetElement.x + targetElement.width + OUTER, y: clamp(sy, targetElement.y, targetElement.y + targetElement.height) };
+      }
+    } else {
+      // Vertical dominant
+      if (dy >= 0) {
+        from = { x: sx, y: sourceElement.y + sourceElement.height };
+        to   = { x: clamp(sx, targetElement.x, targetElement.x + targetElement.width), y: targetElement.y - OUTER };
+      } else {
+        from = { x: sx, y: sourceElement.y };
+        to   = { x: clamp(sx, targetElement.x, targetElement.x + targetElement.width), y: targetElement.y + targetElement.height + OUTER };
+      }
+    }
+
+    return [from, to];
+  }
+
+  _findCommonConnectionParent(sourceElement, targetElement) {
+    const sourceAncestors = new Set();
+    let cur = sourceElement;
+    while (cur) {
+      sourceAncestors.add(cur);
+      cur = cur.parent;
+    }
+
+    cur = targetElement;
+    while (cur) {
+      if (sourceAncestors.has(cur)) return cur;
+      cur = cur.parent;
+    }
+
+    return sourceElement.parent || null;
+  }
+
+  _buildWaypointsForSide(sourceElement, targetElement, side) {
+    const sourceCenterX = sourceElement.x + sourceElement.width / 2;
+    const sourceCenterY = sourceElement.y + sourceElement.height / 2;
+    const targetCenterX = targetElement.x + targetElement.width / 2;
+    const targetCenterY = targetElement.y + targetElement.height / 2;
+    const OUTER = 3;
+
+    let from = { x: sourceCenterX, y: sourceCenterY };
+    let to = { x: targetCenterX, y: targetCenterY };
+
+    if (side.id === 'e') {
+      from = { x: sourceElement.x + sourceElement.width, y: sourceCenterY };
+      to = {
+        x: targetElement.x - OUTER,
+        y: clamp(sourceCenterY, targetElement.y, targetElement.y + targetElement.height)
+      };
+    } else if (side.id === 'w') {
+      from = { x: sourceElement.x, y: sourceCenterY };
+      to = {
+        x: targetElement.x + targetElement.width + OUTER,
+        y: clamp(sourceCenterY, targetElement.y, targetElement.y + targetElement.height)
+      };
+    } else if (side.id === 's') {
+      from = { x: sourceCenterX, y: sourceElement.y + sourceElement.height };
+      to = {
+        x: clamp(sourceCenterX, targetElement.x, targetElement.x + targetElement.width),
+        y: targetElement.y - OUTER
+      };
+    } else if (side.id === 'n') {
+      from = { x: sourceCenterX, y: sourceElement.y };
+      to = {
+        x: clamp(sourceCenterX, targetElement.x, targetElement.x + targetElement.width),
+        y: targetElement.y + targetElement.height + OUTER
+      };
+    }
+
+    return [from, to];
   }
 
   // ── Create connected element ──────────────────────────────────────────────
@@ -422,39 +804,8 @@ class MflexResizeHandles {
       return;
     }
 
-    // ── Connect the two shapes ──────────────────────────────────────────────
-    let connected = false;
-
-    // Attempt 1: let bpmn-js pick the connection type via rules
-    try {
-      const conn = this._modeling.connect(sourceElement, shape);
-      connected = !!conn;
-    } catch (_) {}
-
-    // Attempt 2: explicit SequenceFlow (standard flow elements)
-    if (!connected) {
-      try {
-        this._modeling.createConnection(
-          sourceElement, shape,
-          { type: 'bpmn:SequenceFlow' },
-          connParent
-        );
-        connected = true;
-      } catch (_) {}
-    }
-
-    // Attempt 3: explicit Association (TextAnnotations and artifacts)
-    if (!connected) {
-      try {
-        this._modeling.createConnection(
-          sourceElement, shape,
-          { type: 'bpmn:Association' },
-          connParent
-        );
-        connected = true;
-      } catch (err) {
-        console.warn('[mflex] Could not create connection:', err);
-      }
+    if (!this._connectElements(sourceElement, shape, side)) {
+      console.warn('[mflex] Could not create connection');
     }
   }
 }
@@ -478,7 +829,7 @@ document.addEventListener('mouseup', () => {
 
 MflexResizeHandles.$inject = [
   'eventBus', 'canvas', 'selection', 'resize',
-  'connect', 'modeling', 'elementFactory',
+  'connect', 'modeling', 'elementFactory', 'elementRegistry',
 ];
 
 // ─── Module export ────────────────────────────────────────────────────────────
@@ -488,3 +839,13 @@ export default {
   mflexResizeHandles: ['type', MflexResizeHandles],
   mflexResizeRules:   ['type', MflexResizeRules],
 };
+
+function intervalGap(a1, a2, b1, b2) {
+  if (a2 < b1) return b1 - a2;
+  if (b2 < a1) return a1 - b2;
+  return 0;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
